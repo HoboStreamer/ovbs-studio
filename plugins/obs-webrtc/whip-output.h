@@ -45,18 +45,27 @@ private:
 	void SendDelete();
 	void StopThread(bool signal);
 	void ParseLinkHeader(std::string linkHeader, std::vector<rtc::IceServer> &iceServers);
+	void ParseIceServerOverrides(std::vector<rtc::IceServer> &iceServers);
 	void Send(void *data, uintptr_t size, uint64_t duration, std::shared_ptr<rtc::Track> track,
 		  std::shared_ptr<rtc::RtcpSrReporter> rtcp_sr_reporter);
+	void OnRtcpMessage(rtc::message_variant message);
 
 	obs_output_t *output;
 
 	std::string endpoint_url;
 	std::string bearer_token;
 	std::string resource_url;
+	std::string custom_ice_servers;
+
+	uint16_t max_video_fragment_size;
+	int video_nack_buffer_size;
+	bool enable_pacing;
+	int pacing_interval_ms;
 
 	std::atomic<bool> running;
 
 	std::mutex start_stop_mutex;
+	std::mutex data_mutex;
 	std::thread start_stop_thread;
 
 	uint32_t base_ssrc;

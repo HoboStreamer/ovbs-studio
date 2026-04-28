@@ -107,6 +107,7 @@ struct nvenc_data {
 	int8_t *roi_map;
 	size_t roi_map_size;
 	uint32_t roi_increment;
+	volatile bool force_keyframe;
 
 #ifdef NVENC_13_0_OR_LATER
 	CONTENT_LIGHT_LEVEL *cll;
@@ -162,6 +163,7 @@ struct nv_texture {
 
 bool nvenc_encode_base(struct nvenc_data *enc, struct nv_bitstream *bs, void *pic, int64_t pts,
 		       struct encoder_packet *packet, bool *received_packet);
+void nvenc_request_keyframe(struct nvenc_data *enc);
 
 /* ------------------------------------------------------------------------- */
 /* Backend-specific functions                                                */

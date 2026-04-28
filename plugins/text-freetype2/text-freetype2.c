@@ -208,6 +208,14 @@ static obs_properties_t *ft2_source_properties(void *unused)
 
 	obs_properties_add_bool(props, "drop_shadow", obs_module_text("DropShadow"));
 
+	obs_properties_add_int(props, "outline_width", obs_module_text("OutlineWidth"), 0, 50, 1);
+
+	obs_property_t *alignment = obs_properties_add_list(props, "alignment", obs_module_text("Alignment"), OBS_COMBO_TYPE_LIST,
+							OBS_COMBO_FORMAT_INT);
+	obs_property_list_add_int(alignment, "Left", FT2_ALIGN_LEFT);
+	obs_property_list_add_int(alignment, "Center", FT2_ALIGN_CENTER);
+	obs_property_list_add_int(alignment, "Right", FT2_ALIGN_RIGHT);
+
 	obs_properties_add_int(props, "custom_width", obs_module_text("CustomWidth"), 0, 4096, 1);
 
 	obs_properties_add_bool(props, "word_wrap", obs_module_text("WordWrap"));
@@ -353,10 +361,17 @@ static void ft2_source_update(void *data, obs_data_t *settings)
 	srcdata->drop_shadow = obs_data_get_bool(settings, "drop_shadow");
 	srcdata->outline_text = obs_data_get_bool(settings, "outline");
 
-	if (srcdata->outline_text && srcdata->drop_shadow)
-		srcdata->outline_width = 6;
-	else if (srcdata->outline_text || srcdata->drop_shadow)
-		srcdata->outline_width = 4;
+	uint32_t outline_width = (uint32_t)obs_data_get_int(settings, "outline_width");
+	srcdata->drop_shadow = obs_data_get_bool(settings, "drop_shadow");
+	srcdata->outline_text = obs_data_get_bool(settings, "outline");
+
+	if (srcdata->outline_text && outline_width == 0)
+		outline_width = 4;
+
+	if (outline_width != srcdata->outline_width) {
+		srcdata->outline_width = outline_width;
+		vbuf_needs_update = true;
+	}
 
 	word_wrap = obs_data_get_bool(settings, "word_wrap");
 
@@ -377,6 +392,12 @@ static void ft2_source_update(void *data, obs_data_t *settings)
 
 	if (word_wrap != srcdata->word_wrap) {
 		srcdata->word_wrap = word_wrap;
+		vbuf_needs_update = true;
+	}
+
+	uint32_t alignment = (uint32_t)obs_data_get_int(settings, "alignment");
+	if (alignment != srcdata->alignment) {
+		srcdata->alignment = alignment;
 		vbuf_needs_update = true;
 	}
 
@@ -597,6 +618,8 @@ static void ft2_source_defaults(obs_data_t *settings, int ver)
 	obs_data_set_default_bool(settings, "antialiasing", true);
 	obs_data_set_default_bool(settings, "word_wrap", false);
 	obs_data_set_default_bool(settings, "outline", false);
+	obs_data_set_default_int(settings, "outline_width", 4);
+	obs_data_set_default_int(settings, "alignment", FT2_ALIGN_LEFT);
 	obs_data_set_default_bool(settings, "drop_shadow", false);
 
 	obs_data_set_default_int(settings, "log_lines", 6);

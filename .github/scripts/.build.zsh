@@ -59,10 +59,10 @@ build() {
   local -i analyze=0
 
   local -a args
-  while (( # )) {
+  while (( $# )) {
     case ${1} {
       -t|--target|-c|--config)
-        if (( # == 1 )) || [[ ${2:0:1} == '-' ]] {
+        if (( $# == 1 )) || [[ ${2:0:1} == '-' ]] {
           log_error "Missing value for option %B${1}%b"
           exit 2
         }
@@ -212,6 +212,8 @@ build() {
       cmake_args+=(
         --preset ubuntu-ci
         -DENABLE_BROWSER:BOOL=ON
+        -DENABLE_WEBRTC:BOOL=ON
+        -DOBS_VERSION_OVERRIDE:STRING=34.0.0
         -DCEF_ROOT_DIR:PATH="${project_root}/.deps/cef_binary_${CEF_VERSION}_${target//ubuntu-/linux_}"
       )
 

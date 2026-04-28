@@ -3,12 +3,9 @@
 
 #include <obs.hpp>
 
-/*
- * Sets the maximum size for a video fragment. Effective range is
- * 576-1470, with a lower value equating to more packets created,
- * but also better network compatability.
- */
-static uint16_t MAX_VIDEO_FRAGMENT_SIZE = 1200;
+static constexpr uint16_t DEFAULT_MAX_VIDEO_FRAGMENT_SIZE = 900;
+static constexpr int DEFAULT_VIDEO_NACK_BUFFER_SIZE = 1000;
+static constexpr int DEFAULT_PACING_INTERVAL_MS = 1;
 
 const int signaling_media_id_length = 16;
 const char signaling_media_id_valid_char[] = "0123456789"
@@ -23,17 +20,19 @@ const uint8_t audio_payload_type = 111;
 const char *video_mid = "1";
 const uint8_t video_payload_type = 96;
 
-// ~3 seconds of 8.5 Megabit video
-const int video_nack_buffer_size = 4000;
-
 const std::string rtpHeaderExtUriMid = "urn:ietf:params:rtp-hdrext:sdes:mid";
 const std::string rtpHeaderExtUriRid = "urn:ietf:params:rtp-hdrext:sdes:rtp-stream-id";
 
-WHIPOutput::WHIPOutput(obs_data_t *, obs_output_t *output)
+WHIPOutput::WHIPOutput(obs_data_t *settings, obs_output_t *output)
 	: output(output),
 	  endpoint_url(),
 	  bearer_token(),
 	  resource_url(),
+	  custom_ice_servers(),
+	  max_video_fragment_size(DEFAULT_MAX_VIDEO_FRAGMENT_SIZE),
+	  video_nack_buffer_size(DEFAULT_VIDEO_NACK_BUFFER_SIZE),
+	  enable_pacing(true),
+	  pacing_interval_ms(DEFAULT_PACING_INTERVAL_MS),
 	  running(false),
 	  start_stop_mutex(),
 	  start_stop_thread(),
@@ -46,6 +45,23 @@ WHIPOutput::WHIPOutput(obs_data_t *, obs_output_t *output)
 	  start_time_ns(0),
 	  last_audio_timestamp(0)
 {
+	if (settings) {
+		max_video_fragment_size = static_cast<uint16_t>(obs_data_get_int(settings, "max_video_fragment_size"));
+		if (max_video_fragment_size == 0)
+			max_video_fragment_size = DEFAULT_MAX_VIDEO_FRAGMENT_SIZE;
+
+		video_nack_buffer_size = static_cast<int>(obs_data_get_int(settings, "video_nack_buffer_size"));
+		if (video_nack_buffer_size <= 0)
+			video_nack_buffer_size = DEFAULT_VIDEO_NACK_BUFFER_SIZE;
+
+		enable_pacing = obs_data_get_bool(settings, "enable_pacing");
+
+		pacing_interval_ms = static_cast<int>(obs_data_get_int(settings, "pacing_interval_ms"));
+		if (pacing_interval_ms <= 0)
+			pacing_interval_ms = DEFAULT_PACING_INTERVAL_MS;
+
+		custom_ice_servers = obs_data_get_string(settings, "custom_ice_servers");
+	}
 }
 
 WHIPOutput::~WHIPOutput()
@@ -213,17 +229,17 @@ void WHIPOutput::ConfigureVideoTrack(std::string media_stream_id, std::string cn
 	if (strcmp("h264", codec) == 0) {
 		video_description.addH264Codec(video_payload_type);
 		packetizer = std::make_shared<rtc::H264RtpPacketizer>(rtc::H264RtpPacketizer::Separator::StartSequence,
-								      rtp_config, MAX_VIDEO_FRAGMENT_SIZE);
+					      rtp_config, max_video_fragment_size);
 #ifdef ENABLE_HEVC
 	} else if (strcmp("hevc", codec) == 0) {
 		video_description.addH265Codec(video_payload_type);
 		packetizer = std::make_shared<rtc::H265RtpPacketizer>(rtc::H265RtpPacketizer::Separator::StartSequence,
-								      rtp_config, MAX_VIDEO_FRAGMENT_SIZE);
+					      rtp_config, max_video_fragment_size);
 #endif
 	} else if (strcmp("av1", codec) == 0) {
 		video_description.addAV1Codec(video_payload_type);
 		packetizer = std::make_shared<rtc::AV1RtpPacketizer>(rtc::AV1RtpPacketizer::Packetization::TemporalUnit,
-								     rtp_config, MAX_VIDEO_FRAGMENT_SIZE);
+					     rtp_config, max_video_fragment_size);
 	} else {
 		do_log(LOG_ERROR, "Video codec not supported: %s", codec);
 		return;
@@ -233,13 +249,16 @@ void WHIPOutput::ConfigureVideoTrack(std::string media_stream_id, std::string cn
 	packetizer->addToChain(video_sr_reporter);
 	packetizer->addToChain(std::make_shared<rtc::RtcpNackResponder>(video_nack_buffer_size));
 
-	if (video_bitrate != 0) {
+	if (video_bitrate != 0 && enable_pacing) {
 		packetizer->addToChain(std::make_shared<rtc::PacingHandler>(static_cast<double>(video_bitrate * 10000),
-									    std::chrono::milliseconds(5)));
+					    std::chrono::milliseconds(pacing_interval_ms)));
 	}
 
 	video_track = peer_connection->addTrack(video_description);
 	video_track->setMediaHandler(packetizer);
+	video_track->onMessage([this](rtc::message_variant message) {
+		OnRtcpMessage(message);
+	});
 }
 
 /**
@@ -388,6 +407,31 @@ void WHIPOutput::ParseLinkHeader(std::string val, std::vector<rtc::IceServer> &i
 	}
 }
 
+void WHIPOutput::ParseIceServerOverrides(std::vector<rtc::IceServer> &iceServers)
+{
+	if (custom_ice_servers.empty())
+		return;
+
+	std::string value(custom_ice_servers);
+
+	while (!value.empty()) {
+		auto comma = value.find(",");
+		std::string token = (comma == std::string::npos) ? value : value.substr(0, comma);
+		auto trimmed = trim_string(token);
+		if (!trimmed.empty()) {
+			try {
+				auto iceServer = rtc::IceServer(trimmed);
+				iceServers.push_back(iceServer);
+			} catch (const std::invalid_argument &err) {
+				do_log(LOG_WARNING, "Custom ICE server ignored: %s (%s)", trimmed.c_str(), err.what());
+			}
+		}
+		if (comma == std::string::npos)
+			break;
+		value.erase(0, comma + 1);
+	}
+}
+
 bool WHIPOutput::Connect()
 {
 	struct curl_slist *headers = NULL;
@@ -499,6 +543,9 @@ bool WHIPOutput::Connect()
 		}
 		this->ParseLinkHeader(value, iceServers);
 	}
+
+	// Add any custom ICE server overrides from output settings
+	this->ParseIceServerOverrides(iceServers);
 
 	// If Location header doesn't start with `http` it is a relative URL.
 	// Construct a absolute URL using the host of the effective URL
@@ -682,6 +729,28 @@ void WHIPOutput::StopThread(bool signal)
 	videoLayerStates.clear();
 }
 
+void WHIPOutput::OnRtcpMessage(rtc::message_variant message)
+{
+	if (!std::holds_alternative<rtc::binary>(message))
+		return;
+
+	auto &data = std::get<rtc::binary>(message);
+	if (data.size() < 12)
+		return;
+
+	uint8_t pt = static_cast<uint8_t>(data[1]);
+	uint8_t fmt = static_cast<uint8_t>(data[0]) & 0x1f;
+
+	// Handle PLI (Picture Loss Indication) - RFC 4585
+	// pt=206 is RTCP Payload-Specific Feedback, fmt=1 is PLI
+	if (pt == 206 && fmt == 1) {
+		do_log(LOG_DEBUG, "PLI received, requesting keyframe");
+		obs_encoder_t *encoder = obs_output_get_video_encoder(output);
+		if (encoder)
+			obs_encoder_request_keyframe(encoder);
+	}
+}
+
 void WHIPOutput::Send(void *data, uintptr_t size, uint64_t duration, std::shared_ptr<rtc::Track> track,
 		      std::shared_ptr<rtc::RtcpSrReporter> rtcp_sr_reporter)
 {
@@ -720,7 +789,8 @@ void WHIPOutput::Send(void *data, uintptr_t size, uint64_t duration, std::shared
 
 void register_whip_output()
 {
-	const uint32_t base_flags = OBS_OUTPUT_ENCODED | OBS_OUTPUT_SERVICE | OBS_OUTPUT_MULTI_TRACK_AV;
+	const uint32_t base_flags = OBS_OUTPUT_ENCODED | OBS_OUTPUT_SERVICE | OBS_OUTPUT_MULTI_TRACK_AV |
+						 OBS_OUTPUT_NO_INTERLEAVE;
 
 	const char *audio_codecs = "opus";
 #ifdef ENABLE_HEVC
@@ -750,10 +820,24 @@ void register_whip_output()
 	info.encoded_packet = [](void *priv_data, struct encoder_packet *packet) {
 		static_cast<WHIPOutput *>(priv_data)->Data(packet);
 	};
-	info.get_defaults = [](obs_data_t *) {
+	info.get_defaults = [](obs_data_t *settings) -> void {
+		if (!settings)
+			return;
+
+		obs_data_set_int(settings, "max_video_fragment_size", DEFAULT_MAX_VIDEO_FRAGMENT_SIZE);
+		obs_data_set_int(settings, "video_nack_buffer_size", DEFAULT_VIDEO_NACK_BUFFER_SIZE);
+		obs_data_set_bool(settings, "enable_pacing", false);
+		obs_data_set_int(settings, "pacing_interval_ms", DEFAULT_PACING_INTERVAL_MS);
+		obs_data_set_string(settings, "custom_ice_servers", "");
 	};
 	info.get_properties = [](void *) -> obs_properties_t * {
-		return obs_properties_create();
+		obs_properties_t *props = obs_properties_create();
+		obs_properties_add_int(props, "max_video_fragment_size", "Max video fragment size", 576, 1470, 1);
+		obs_properties_add_int(props, "video_nack_buffer_size", "Video NACK buffer size", 512, 16000, 100);
+		obs_properties_add_bool(props, "enable_pacing", "Enable packet pacing");
+		obs_properties_add_int(props, "pacing_interval_ms", "Pacing interval (ms)", 1, 100, 1);
+		obs_properties_add_text(props, "custom_ice_servers", "Custom ICE servers", OBS_TEXT_MULTILINE);
+		return props;
 	};
 	info.get_total_bytes = [](void *priv_data) -> uint64_t {
 		return (uint64_t)static_cast<WHIPOutput *>(priv_data)->GetTotalBytes();

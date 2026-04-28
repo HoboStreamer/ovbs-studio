@@ -44,6 +44,20 @@
 # Exclude modified Flatpak files
 build-aux/flatpak-github-action-modified-*
 
+# Exclude local build tree and temporary artifacts
+/build_ubuntu/
+*.log
+*.tmp
+*.swp
+*~
+.vscode/
+.idea/
+__pycache__/
+*.pyc
+*.pyo
+*.orig
+*.bak
+
 # Exclude macOS legacy resource forks
 .DS_Store
 

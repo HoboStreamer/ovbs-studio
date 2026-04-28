@@ -26,10 +26,11 @@ obs_properties_t *WHIPService::Properties()
 
 void WHIPService::ApplyEncoderSettings(obs_data_t *video_settings, obs_data_t *)
 {
-	// For now, ensure maximum compatibility with webrtc peers
+	// For low-latency WHIP streams, bias encoder defaults toward fast keyframes and compatibility.
 	if (video_settings) {
 		obs_data_set_int(video_settings, "bf", 0);
 		obs_data_set_bool(video_settings, "repeat_headers", true);
+		obs_data_set_int(video_settings, "keyint_sec", 1);
 	}
 }
 

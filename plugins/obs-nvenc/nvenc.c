@@ -1283,6 +1283,11 @@ bool nvenc_encode_base(struct nvenc_data *enc, struct nv_bitstream *bs, void *pi
 	params.outputBitstream = bs->ptr;
 	params.frameIdx = (uint32_t)pts;
 
+	if (enc->force_keyframe) {
+		params.encodePicFlags = NV_ENC_PIC_FLAG_FORCEIDR;
+		enc->force_keyframe = false;
+	}
+
 	if (enc->non_texture) {
 		params.bufferFmt = enc->surface_format;
 	} else {
@@ -1388,6 +1393,17 @@ static bool nvenc_sei_data(void *data, uint8_t **sei, size_t *size)
 	return true;
 }
 
+void nvenc_request_keyframe(struct nvenc_data *enc)
+{
+	enc->force_keyframe = true;
+}
+
+static void nvenc_request_keyframe_cb(void *data)
+{
+	struct nvenc_data *enc = data;
+	nvenc_request_keyframe(enc);
+}
+
 struct obs_encoder_info h264_nvenc_info = {
 	.id = "obs_nvenc_h264_tex",
 	.codec = "h264",
@@ -1406,6 +1422,7 @@ struct obs_encoder_info h264_nvenc_info = {
 	.get_properties = h264_nvenc_properties,
 	.get_extra_data = nvenc_extra_data,
 	.get_sei_data = nvenc_sei_data,
+	.request_keyframe = nvenc_request_keyframe_cb,
 };
 
 #ifdef ENABLE_HEVC
@@ -1427,6 +1444,7 @@ struct obs_encoder_info hevc_nvenc_info = {
 	.get_properties = hevc_nvenc_properties,
 	.get_extra_data = nvenc_extra_data,
 	.get_sei_data = nvenc_sei_data,
+	.request_keyframe = nvenc_request_keyframe_cb,
 };
 #endif
 
@@ -1447,6 +1465,7 @@ struct obs_encoder_info av1_nvenc_info = {
 	.get_defaults = av1_nvenc_defaults,
 	.get_properties = av1_nvenc_properties,
 	.get_extra_data = nvenc_extra_data,
+	.request_keyframe = nvenc_request_keyframe_cb,
 };
 
 struct obs_encoder_info h264_nvenc_soft_info = {
@@ -1464,6 +1483,7 @@ struct obs_encoder_info h264_nvenc_soft_info = {
 	.get_extra_data = nvenc_extra_data,
 	.get_sei_data = nvenc_sei_data,
 	.get_video_info = nvenc_soft_video_info,
+	.request_keyframe = nvenc_request_keyframe_cb,
 };
 
 #ifdef ENABLE_HEVC
@@ -1499,6 +1519,7 @@ struct obs_encoder_info av1_nvenc_soft_info = {
 	.get_properties = av1_nvenc_properties,
 	.get_extra_data = nvenc_extra_data,
 	.get_video_info = nvenc_soft_video_info,
+	.request_keyframe = nvenc_request_keyframe_cb,
 };
 
 void register_encoders(void)

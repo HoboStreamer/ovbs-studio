@@ -30,6 +30,8 @@ enum class ListOpt : int {
 	ShowAll = 1,
 	Custom,
 	WHIP,
+	HoboStreamerRTMP,
+	HoboStreamerWHIP,
 };
 
 enum class Section : int {
@@ -37,14 +39,36 @@ enum class Section : int {
 	StreamKey,
 };
 
+static QString HoboStreamerRtmpServer()
+{
+	return QStringLiteral("rtmp://rtmp.hobostreamer.com:1935/live");
+}
+
+static QString HoboStreamerWhipUrl()
+{
+	return QStringLiteral("https://whip.hobostreamer.com/whip/1");
+}
+
 bool OBSBasicSettings::IsCustomService() const
 {
-	return ui->service->currentData().toInt() == (int)ListOpt::Custom;
+	int data = ui->service->currentData().toInt();
+	return data == (int)ListOpt::Custom || data == (int)ListOpt::HoboStreamerRTMP;
 }
 
 inline bool OBSBasicSettings::IsWHIP() const
 {
-	return ui->service->currentData().toInt() == (int)ListOpt::WHIP;
+	int data = ui->service->currentData().toInt();
+	return data == (int)ListOpt::WHIP || data == (int)ListOpt::HoboStreamerWHIP;
+}
+
+inline bool OBSBasicSettings::IsHoboStreamerRTMP() const
+{
+	return ui->service->currentData().toInt() == (int)ListOpt::HoboStreamerRTMP;
+}
+
+inline bool OBSBasicSettings::IsHoboStreamerWHIP() const
+{
+	return ui->service->currentData().toInt() == (int)ListOpt::HoboStreamerWHIP;
 }
 
 void OBSBasicSettings::InitStreamPage()
@@ -114,20 +138,36 @@ void OBSBasicSettings::LoadStream1Settings()
 	protocol = QT_UTF8(obs_service_get_protocol(service_obj));
 	const char *bearer_token = obs_data_get_string(settings, "bearer_token");
 
+	bool is_hobo_rtmp = is_rtmp_custom && server && strcmp(server, "rtmp://rtmp.hobostreamer.com:1935/live") == 0;
+	bool is_hobo_whip = is_whip && server && QString::fromUtf8(server).startsWith(QStringLiteral("https://whip.hobostreamer.com/whip/"));
+
 	if (is_rtmp_custom || is_whip)
 		ui->customServer->setText(server);
 
-	if (is_rtmp_custom) {
+	if (is_hobo_rtmp) {
+		int idx = ui->service->findText(QStringLiteral("HoboStreamer - RTMP"));
+		if (idx != -1)
+			ui->service->setCurrentIndex(idx);
+		lastServiceIdx = idx;
+		lastCustomServer = ui->customServer->text();
+	} else if (is_rtmp_custom) {
 		ui->service->setCurrentIndex(0);
 		lastServiceIdx = 0;
 		lastCustomServer = ui->customServer->text();
-
-		bool use_auth = obs_data_get_bool(settings, "use_auth");
-		const char *username = obs_data_get_string(settings, "username");
-		const char *password = obs_data_get_string(settings, "password");
-		ui->authUsername->setText(QT_UTF8(username));
-		ui->authPw->setText(QT_UTF8(password));
-		ui->useAuth->setChecked(use_auth);
+	} else if (is_whip) {
+		int idx = ui->service->findText(QStringLiteral("WHIP"));
+		if (idx == -1) {
+			ui->service->insertItem(1, QTStr("WHIP"), QVariant((int)ListOpt::WHIP));
+			idx = 1;
+		}
+		ui->service->setCurrentIndex(idx);
+		lastServiceIdx = idx;
+		if (is_hobo_whip) {
+			int hidx = ui->service->findText(QStringLiteral("HoboStreamer - WHIP"));
+			if (hidx != -1)
+				ui->service->setCurrentIndex(hidx);
+			lastServiceIdx = hidx;
+		}
 	} else {
 		int idx = ui->service->findText(service);
 		if (idx == -1) {
@@ -143,6 +183,15 @@ void OBSBasicSettings::LoadStream1Settings()
 
 		idx = config_get_int(main->Config(), "Twitch", "AddonChoice");
 		ui->twitchAddonDropdown->setCurrentIndex(idx);
+	}
+
+	if (is_rtmp_custom) {
+		bool use_auth = obs_data_get_bool(settings, "use_auth");
+		const char *username = obs_data_get_string(settings, "username");
+		const char *password = obs_data_get_string(settings, "password");
+		ui->authUsername->setText(QT_UTF8(username));
+		ui->authPw->setText(QT_UTF8(password));
+		ui->useAuth->setChecked(use_auth);
 	}
 
 	ui->enableMultitrackVideo->setChecked(config_get_bool(main->Config(), "Stream1", "EnableMultitrackVideo"));
@@ -261,11 +310,13 @@ void OBSBasicSettings::SaveStream1Settings()
 {
 	bool customServer = IsCustomService();
 	bool whip = IsWHIP();
+	bool hoboRtmp = IsHoboStreamerRTMP();
+	bool hoboWhip = IsHoboStreamerWHIP();
 	const char *service_id = "rtmp_common";
 
-	if (customServer) {
+	if (customServer || hoboRtmp) {
 		service_id = "rtmp_custom";
-	} else if (whip) {
+	} else if (whip || hoboWhip) {
 		service_id = "whip_custom";
 	}
 
@@ -274,7 +325,7 @@ void OBSBasicSettings::SaveStream1Settings()
 
 	OBSDataAutoRelease settings = obs_data_create();
 
-	if (!customServer && !whip) {
+	if (!customServer && !whip && !hoboRtmp && !hoboWhip) {
 		obs_data_set_string(settings, "service", QT_TO_UTF8(ui->service->currentText()));
 		obs_data_set_string(settings, "protocol", QT_TO_UTF8(protocol));
 		if (ui->server->currentData() == CustomServerUUID()) {
@@ -285,7 +336,13 @@ void OBSBasicSettings::SaveStream1Settings()
 			obs_data_set_string(settings, "server", QT_TO_UTF8(ui->server->currentData().toString()));
 		}
 	} else {
-		obs_data_set_string(settings, "server", QT_TO_UTF8(ui->customServer->text().trimmed()));
+		if (hoboRtmp) {
+			obs_data_set_string(settings, "server", QT_TO_UTF8(HoboStreamerRtmpServer()));
+		} else if (hoboWhip) {
+			obs_data_set_string(settings, "server", QT_TO_UTF8(HoboStreamerWhipUrl()));
+		} else {
+			obs_data_set_string(settings, "server", QT_TO_UTF8(ui->customServer->text().trimmed()));
+		}
 		obs_data_set_bool(settings, "use_auth", ui->useAuth->isChecked());
 		if (ui->useAuth->isChecked()) {
 			obs_data_set_string(settings, "username", QT_TO_UTF8(ui->authUsername->text()));
@@ -483,11 +540,14 @@ void OBSBasicSettings::LoadServices(bool showAll)
 
 	if (obs_is_output_protocol_registered("WHIP")) {
 		ui->service->addItem(QTStr("WHIP"), QVariant((int)ListOpt::WHIP));
+		ui->service->addItem(QStringLiteral("HoboStreamer - WHIP"), QVariant((int)ListOpt::HoboStreamerWHIP));
 	}
+
+	ui->service->addItem(QStringLiteral("HoboStreamer - RTMP"), QVariant((int)ListOpt::HoboStreamerRTMP));
 
 	if (!showAll) {
 		ui->service->addItem(QTStr("Basic.AutoConfig.StreamPage.Service.ShowAll"),
-				     QVariant((int)ListOpt::ShowAll));
+				 QVariant((int)ListOpt::ShowAll));
 	}
 
 	ui->service->insertItem(0, QTStr("Basic.AutoConfig.StreamPage.Service.Custom"), QVariant((int)ListOpt::Custom));
@@ -574,6 +634,12 @@ void OBSBasicSettings::on_service_currentIndexChanged(int idx)
 	}
 
 	ServiceChanged();
+
+	if (IsHoboStreamerRTMP()) {
+		ui->customServer->setText(HoboStreamerRtmpServer());
+	} else if (IsHoboStreamerWHIP()) {
+		ui->customServer->setText(HoboStreamerWhipUrl());
+	}
 
 	UpdateMoreInfoLink();
 	UpdateServerList();

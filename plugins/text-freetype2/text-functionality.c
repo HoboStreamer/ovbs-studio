@@ -33,9 +33,13 @@ void draw_outlines(struct ft2_source *srcdata)
 	if (!srcdata->text)
 		return;
 
+	float outline_scale = 1.0f;
+	if (srcdata->outline_width > 0)
+		outline_scale = (float)srcdata->outline_width / 4.0f;
+
 	gs_matrix_push();
 	for (int32_t i = 0; i < 8; i++) {
-		gs_matrix_translate3f(offsets[i * 2], offsets[(i * 2) + 1], 0.0f);
+		gs_matrix_translate3f(offsets[i * 2] * outline_scale, offsets[(i * 2) + 1] * outline_scale, 0.0f);
 		draw_uv_vbuffer(srcdata->vbuf, srcdata->tex, srcdata->draw_effect, (uint32_t)wcslen(srcdata->text) * 6,
 				false);
 	}
@@ -126,6 +130,54 @@ skip_word_wrap:;
 	obs_leave_graphics();
 }
 
+static uint32_t get_line_width(const wchar_t *text, struct ft2_source *srcdata)
+{
+	FT_UInt glyph_index = 0;
+	uint32_t width = 0;
+
+	for (size_t i = 0; text[i] && text[i] != L'\n'; i++) {
+		glyph_index = FT_Get_Char_Index(srcdata->font_face, text[i]);
+		if (src_glyph)
+			width += src_glyph->xadv;
+	}
+
+	return width;
+}
+
+static uint32_t get_render_line_width(const wchar_t *text, struct ft2_source *srcdata, uint32_t max_width)
+{
+	FT_UInt glyph_index = 0;
+	uint32_t width = 0;
+
+	for (size_t i = 0; text[i] && text[i] != L'\n'; i++) {
+		glyph_index = FT_Get_Char_Index(srcdata->font_face, text[i]);
+		if (!src_glyph)
+			continue;
+
+		if (max_width > 0 && width + src_glyph->xadv > max_width)
+			break;
+
+		width += src_glyph->xadv;
+	}
+
+	return width;
+}
+
+static uint32_t get_alignment_offset(const wchar_t *text, struct ft2_source *srcdata, uint32_t width)
+{
+	if (!text || *text == 0 || srcdata->alignment == FT2_ALIGN_LEFT)
+		return 0;
+
+	uint32_t line_width = get_render_line_width(text, srcdata, width > 0 ? width : 0);
+	if (line_width >= width)
+		return 0;
+
+	if (srcdata->alignment == FT2_ALIGN_CENTER)
+		return (width - line_width) / 2;
+
+	return width - line_width;
+}
+
 void fill_vertex_buffer(struct ft2_source *srcdata)
 {
 	struct gs_vb_data *vdata = gs_vertexbuffer_get_data(srcdata->vbuf);
@@ -141,23 +193,32 @@ void fill_vertex_buffer(struct ft2_source *srcdata)
 	uint32_t cur_glyph = 0;
 	uint32_t offset = 0;
 	size_t len = wcslen(srcdata->text);
+	uint32_t actual_width = srcdata->custom_width >= 100 ? srcdata->custom_width : srcdata->cx;
+	size_t line_start = 0;
 
 	if (srcdata->outline_text) {
 		offset = 2;
-		dx = offset;
 	}
+
+	dx = offset + get_alignment_offset(srcdata->text, srcdata, actual_width);
 
 	for (size_t i = 0; i < len; i++) {
 	add_linebreak:;
 		if (srcdata->text[i] != L'\n')
 			goto draw_glyph;
-		dx = offset;
-		i++;
+		line_start = i + 1;
 		dy += srcdata->max_h + 4;
 		if (i == wcslen(srcdata->text))
 			goto skip_glyph;
-		if (srcdata->text[i] == L'\n')
+		if (srcdata->text[i + 1] == L'\n') {
+			dx = offset + get_alignment_offset(srcdata->text + line_start, srcdata, actual_width);
+			i += 1;
 			goto add_linebreak;
+		}
+		dx = offset + get_alignment_offset(srcdata->text + line_start, srcdata, actual_width);
+		i++;
+		if (i == len)
+			goto skip_glyph;
 	draw_glyph:;
 		// Skip filthy dual byte Windows line breaks
 		if (srcdata->text[i] == L'\r')
@@ -171,7 +232,8 @@ void fill_vertex_buffer(struct ft2_source *srcdata)
 			goto skip_custom_width;
 
 		if (dx + src_glyph->xadv > srcdata->custom_width) {
-			dx = offset;
+			line_start = i;
+			dx = offset + get_alignment_offset(srcdata->text + line_start, srcdata, actual_width);
 			dy += srcdata->max_h + 4;
 		}
 

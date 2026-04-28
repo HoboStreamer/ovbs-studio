@@ -62,10 +62,10 @@ package() {
   local -i skip_deps=0
 
   local -a args
-  while (( # )) {
+  while (( $# )) {
     case ${1} {
       -t|--target|-c|--config)
-        if (( # == 1 )) || [[ ${2:0:1} == '-' ]] {
+        if (( $# == 1 )) || [[ ${2:0:1} == '-' ]] {
           log_error "Missing value for option %B${1}%b"
           exit 2
         }

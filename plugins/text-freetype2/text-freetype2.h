@@ -23,6 +23,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define num_cache_slots 65535
 #define src_glyph srcdata->cacheglyphs[glyph_index]
 
+enum text_alignment {
+	FT2_ALIGN_LEFT = 0,
+	FT2_ALIGN_CENTER = 1,
+	FT2_ALIGN_RIGHT = 2,
+};
+
 struct glyph_info {
 	float u, v, u2, v2;
 	int32_t w, h, xoff, yoff;
@@ -46,6 +52,7 @@ struct ft2_source {
 
 	uint32_t cx, cy, max_h, custom_width;
 	uint32_t outline_width;
+	uint32_t alignment;
 	uint32_t texbuf_x, texbuf_y;
 	uint32_t color[2];
 
