@@ -28,7 +28,12 @@ void WHIPService::ApplyEncoderSettings(obs_data_t *video_settings, obs_data_t *)
 {
 	// For low-latency WHIP streams, bias encoder defaults toward fast keyframes and compatibility.
 	if (video_settings) {
-		obs_data_set_int(video_settings, "bf", 0);
+		// https://github.com/obsproject/obs-studio/pull/13393
+		const char *codec = obs_data_get_string(video_settings, "codec");
+		bool isAv1 = strcmp(codec, "av1") == 0;
+		if (!isAv1) {
+			obs_data_set_int(video_settings, "bf", 0);
+		}
 		obs_data_set_bool(video_settings, "repeat_headers", true);
 		obs_data_set_int(video_settings, "keyint_sec", 1);
 	}
