@@ -69,8 +69,9 @@ WHIPOutput::~WHIPOutput()
 	Stop();
 
 	std::lock_guard<std::mutex> l(start_stop_mutex);
-	if (start_stop_thread.joinable())
+	if (start_stop_thread.joinable()) {
 		start_stop_thread.join();
+	}
 }
 
 bool WHIPOutput::Start()
@@ -90,13 +91,16 @@ bool WHIPOutput::Start()
 		videoLayerStates[encoder] = v;
 	}
 
-	if (!obs_output_can_begin_data_capture(output, 0))
+	if (!obs_output_can_begin_data_capture(output, 0)) {
 		return false;
-	if (!obs_output_initialize_encoders(output, 0))
+	}
+	if (!obs_output_initialize_encoders(output, 0)) {
 		return false;
+	}
 
-	if (start_stop_thread.joinable())
+	if (start_stop_thread.joinable()) {
 		start_stop_thread.join();
+	}
 	start_stop_thread = std::thread(&WHIPOutput::StartThread, this);
 
 	return true;
@@ -105,8 +109,9 @@ bool WHIPOutput::Start()
 void WHIPOutput::Stop(bool signal)
 {
 	std::lock_guard<std::mutex> l(start_stop_mutex);
-	if (start_stop_thread.joinable())
+	if (start_stop_thread.joinable()) {
 		start_stop_thread.join();
+	}
 
 	start_stop_thread = std::thread(&WHIPOutput::StopThread, this, signal);
 }
@@ -219,8 +224,9 @@ void WHIPOutput::ConfigureVideoTrack(std::string media_stream_id, std::string cn
 	rtp_config->mid = video_mid;
 
 	const obs_encoder_t *encoder = obs_output_get_video_encoder2(output, 0);
-	if (!encoder)
+	if (!encoder) {
 		return;
+	}
 
 	OBSDataAutoRelease settings = obs_encoder_get_settings(encoder);
 	auto video_bitrate = (int)obs_data_get_int(settings, "bitrate");
@@ -514,8 +520,9 @@ bool WHIPOutput::Connect()
 	size_t location_header_count = 0;
 	for (auto &http_header : http_headers) {
 		auto value = value_for_header("location", http_header);
-		if (value.empty())
+		if (value.empty()) {
 			continue;
+		}
 
 		location_header_count++;
 		last_location_header = value;
@@ -533,8 +540,9 @@ bool WHIPOutput::Connect()
 	std::vector<rtc::IceServer> iceServers;
 	for (auto &http_header : http_headers) {
 		auto value = value_for_header("link", http_header);
-		if (value.empty())
+		if (value.empty()) {
 			continue;
+		}
 
 		// Parse multiple links separated by ','
 		for (auto end = value.find(","); end != std::string::npos; end = value.find(",")) {
@@ -629,11 +637,13 @@ bool WHIPOutput::Connect()
 
 void WHIPOutput::StartThread()
 {
-	if (!Init())
+	if (!Init()) {
 		return;
+	}
 
-	if (!Setup())
+	if (!Setup()) {
 		return;
+	}
 
 	if (!Connect()) {
 		peer_connection->close();
@@ -754,8 +764,9 @@ void WHIPOutput::OnRtcpMessage(rtc::message_variant message)
 void WHIPOutput::Send(void *data, uintptr_t size, uint64_t duration, std::shared_ptr<rtc::Track> track,
 		      std::shared_ptr<rtc::RtcpSrReporter> rtcp_sr_reporter)
 {
-	if (track == nullptr || !track->isOpen())
+	if (track == nullptr || !track->isOpen()) {
 		return;
+	}
 
 	std::vector<rtc::byte> sample{(rtc::byte *)data, (rtc::byte *)data + size};
 
@@ -775,8 +786,9 @@ void WHIPOutput::Send(void *data, uintptr_t size, uint64_t duration, std::shared
 	auto report_elapsed_timestamp = rtp_config->timestamp - rtcp_sr_reporter->lastReportedTimestamp();
 
 	// Check if last report was at least 1 second ago
-	if (rtp_config->timestampToSeconds(report_elapsed_timestamp) > 1)
+	if (rtp_config->timestampToSeconds(report_elapsed_timestamp) > 1) {
 		rtcp_sr_reporter->setNeedsToReport();
+	}
 #endif
 
 	try {

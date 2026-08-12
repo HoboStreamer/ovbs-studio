@@ -108,5 +108,7 @@ with the project license.
 If an AI suggestion is used, it should be verified and adapted to the
 repository’s style and quality expectations.
 
+<<<<<<< HEAD
 This project does not ban AI usage on principle. What matters is whether the
 work is solid, respects the license, and helps move OVBS Studio forward.
+>>>>>>> upstream/master
