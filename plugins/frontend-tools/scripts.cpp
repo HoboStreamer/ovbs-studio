@@ -634,7 +634,13 @@ static void script_log(void *, obs_script_t *script, int log_level, const char *
 		qmsg = QStringLiteral("[Unknown Script] %1").arg(message);
 	}
 
-	QMetaObject::invokeMethod(scriptLogWindow, &ScriptLogWindow::AddLogMsg, log_level, qmsg);
+	QMetaObject::invokeMethod(
+	    scriptLogWindow,
+	    [log_level, qmsg]() {
+	        scriptLogWindow->AddLogMsg(log_level, qmsg);
+    	    },
+    	    Qt::AutoConnection
+	);
 }
 
 extern "C" void InitScripts()
