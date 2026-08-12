@@ -1,0 +1,353 @@
+name: HoboStreamer Builds
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version for this build, e.g. 0.1.0-test1"
+        required: true
+        default: "0.1.0-test1"
+        type: string
+      publish_release:
+        description: "Publish these builds as a GitHub Release"
+        required: true
+        default: false
+        type: boolean
+
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+      - '[0-9]*.[0-9]*.[0-9]*-*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: hobostreamer-build-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: false
+
+env:
+  BUILD_CONFIG: Release
+
+jobs:
+  metadata:
+    name: Build metadata
+    runs-on: ubuntu-26.04
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+      tag: ${{ steps.meta.outputs.tag }}
+      publish: ${{ steps.meta.outputs.publish }}
+      prerelease: ${{ steps.meta.outputs.prerelease }}
+    steps:
+      - name: Resolve version
+        id: meta
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            VERSION="${GITHUB_REF_NAME}"
+            TAG="${GITHUB_REF_NAME}"
+            PUBLISH="true"
+          else
+            VERSION="${{ inputs.version }}"
+            TAG="${{ inputs.version }}"
+            PUBLISH="${{ inputs.publish_release }}"
+          fi
+
+          if [[ ! "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Invalid version: $VERSION" >&2
+            exit 1
+          fi
+
+          if [[ "$VERSION" == *-* ]]; then
+            PRERELEASE="true"
+          else
+            PRERELEASE="false"
+          fi
+
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "publish=$PUBLISH" >> "$GITHUB_OUTPUT"
+          echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
+
+  macos:
+    name: macOS ${{ matrix.target }}
+    runs-on: macos-26
+    needs: metadata
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [arm64, x86_64]
+    defaults:
+      run:
+        shell: zsh --no-rcs --errexit --pipefail {0}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Create local version tag for manual build
+        if: github.event_name == 'workflow_dispatch'
+        run: git tag -f '${{ needs.metadata.outputs.tag }}' "$GITHUB_SHA"
+
+      - name: Set up macOS runner
+        id: setup
+        run: |
+          if [[ -d /Applications/Xcode_26.5.app ]]; then
+            sudo xcode-select --switch /Applications/Xcode_26.5.app/Contents/Developer
+          fi
+          local xcode_cas_path="${HOME}/Library/Developer/Xcode/DerivedData/CompilationCache.noindex"
+          mkdir -p "${xcode_cas_path}"
+          print "xcodeCasPath=${xcode_cas_path}" >> "$GITHUB_OUTPUT"
+          xcodebuild -version
+
+      - name: Build
+        uses: ./.github/actions/build-obs
+        env:
+          XCODE_CAS_PATH: ${{ steps.setup.outputs.xcodeCasPath }}
+          TWITCH_CLIENTID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_HASH: ${{ secrets.TWITCH_HASH }}
+          RESTREAM_CLIENTID: ${{ secrets.RESTREAM_CLIENTID }}
+          RESTREAM_HASH: ${{ secrets.RESTREAM_HASH }}
+          YOUTUBE_CLIENTID: ${{ secrets.YOUTUBE_CLIENTID }}
+          YOUTUBE_CLIENTID_HASH: ${{ secrets.YOUTUBE_CLIENTID_HASH }}
+          YOUTUBE_SECRET: ${{ secrets.YOUTUBE_SECRET }}
+          YOUTUBE_SECRET_HASH: ${{ secrets.YOUTUBE_SECRET_HASH }}
+        with:
+          target: ${{ matrix.target }}
+          config: ${{ env.BUILD_CONFIG }}
+          codesign: false
+
+      - name: Package DMG
+        uses: ./.github/actions/package-obs
+        with:
+          target: ${{ matrix.target }}
+          config: ${{ env.BUILD_CONFIG }}
+          package: true
+          codesign: false
+          notarize: false
+
+      - name: Prepare release file
+        run: |
+          mkdir -p dist
+          if [[ '${{ matrix.target }}' == 'arm64' ]]; then
+            src="$(find build_macos -maxdepth 1 -type f -name 'obs-studio-*-macos-apple.dmg' | head -n1)"
+            dst="dist/HoboStreamer-macOS-Apple.dmg"
+          else
+            src="$(find build_macos -maxdepth 1 -type f -name 'obs-studio-*-macos-intel.dmg' | head -n1)"
+            dst="dist/HoboStreamer-macOS-Intel.dmg"
+          fi
+          [[ -n "$src" ]] || { echo "DMG not found"; exit 1; }
+          cp -v "$src" "$dst"
+
+      - name: Upload macOS artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hobostreamer-macos-${{ matrix.target }}
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  linux:
+    name: Linux x86_64
+    runs-on: ubuntu-26.04
+    needs: metadata
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Create local version tag for manual build
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: git tag -f '${{ needs.metadata.outputs.tag }}' "$GITHUB_SHA"
+
+      - name: Build
+        uses: ./.github/actions/build-obs
+        env:
+          TWITCH_CLIENTID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_HASH: ${{ secrets.TWITCH_HASH }}
+          RESTREAM_CLIENTID: ${{ secrets.RESTREAM_CLIENTID }}
+          RESTREAM_HASH: ${{ secrets.RESTREAM_HASH }}
+          YOUTUBE_CLIENTID: ${{ secrets.YOUTUBE_CLIENTID }}
+          YOUTUBE_CLIENTID_HASH: ${{ secrets.YOUTUBE_CLIENTID_HASH }}
+          YOUTUBE_SECRET: ${{ secrets.YOUTUBE_SECRET }}
+          YOUTUBE_SECRET_HASH: ${{ secrets.YOUTUBE_SECRET_HASH }}
+        with:
+          target: x86_64
+          config: ${{ env.BUILD_CONFIG }}
+
+      - name: Package Linux
+        uses: ./.github/actions/package-obs
+        with:
+          target: x86_64
+          config: ${{ env.BUILD_CONFIG }}
+          package: true
+
+      - name: Prepare release files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          deb="$(find build_ubuntu -maxdepth 1 -type f -name 'obs-studio-*-x86_64-ubuntu-gnu.deb' | head -n1)"
+          source_archive="$(find build_ubuntu -maxdepth 1 -type f -name 'obs-studio-*-sources.tar.gz' | head -n1)"
+          [[ -n "$deb" ]] || { echo "DEB not found"; exit 1; }
+          [[ -n "$source_archive" ]] || { echo "Source archive not found"; exit 1; }
+          cp -v "$deb" dist/HoboStreamer-Linux-x86_64.deb
+          cp -v "$source_archive" dist/HoboStreamer-Source.tar.gz
+
+      - name: Upload Linux artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hobostreamer-linux-x86_64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  windows:
+    name: Windows x64
+    runs-on: windows-2025-vs2026
+    needs: metadata
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - name: Create local version tag for manual build
+        if: github.event_name == 'workflow_dispatch'
+        run: git tag -f '${{ needs.metadata.outputs.tag }}' "$env:GITHUB_SHA"
+
+      - name: Build
+        uses: ./.github/actions/build-obs
+        env:
+          TWITCH_CLIENTID: ${{ secrets.TWITCH_CLIENT_ID }}
+          TWITCH_HASH: ${{ secrets.TWITCH_HASH }}
+          RESTREAM_CLIENTID: ${{ secrets.RESTREAM_CLIENTID }}
+          RESTREAM_HASH: ${{ secrets.RESTREAM_HASH }}
+          YOUTUBE_CLIENTID: ${{ secrets.YOUTUBE_CLIENTID }}
+          YOUTUBE_CLIENTID_HASH: ${{ secrets.YOUTUBE_CLIENTID_HASH }}
+          YOUTUBE_SECRET: ${{ secrets.YOUTUBE_SECRET }}
+          YOUTUBE_SECRET_HASH: ${{ secrets.YOUTUBE_SECRET_HASH }}
+          GPU_PRIORITY_VAL: ${{ secrets.GPU_PRIORITY_VAL }}
+        with:
+          target: x64
+          config: ${{ env.BUILD_CONFIG }}
+
+      - name: Package portable ZIP
+        uses: ./.github/actions/package-obs
+        with:
+          target: x64
+          config: ${{ env.BUILD_CONFIG }}
+
+      - name: Build unsigned Windows installer
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Zip = Get-ChildItem 'build_x64\obs-studio-*-windows-x64.zip' | Select-Object -First 1
+          if (-not $Zip) { throw 'Windows ZIP was not created' }
+
+          $Payload = Join-Path $PWD 'build_installer\payload'
+          $Output = Join-Path $PWD 'build_installer\output'
+          New-Item -ItemType Directory -Force -Path $Payload, $Output | Out-Null
+          Expand-Archive -Path $Zip.FullName -DestinationPath $Payload -Force
+
+          choco install innosetup -y --no-progress
+          $ISCC = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $ISCC)) { throw "Inno Setup not found at $ISCC" }
+
+          & $ISCC '.github\installer\hobostreamer.iss' `
+            "/DMyAppVersion=${{ needs.metadata.outputs.version }}" `
+            "/DSourceDir=$Payload" `
+            "/DOutputDir=$Output"
+
+      - name: Prepare release files
+        run: |
+          $ErrorActionPreference = 'Stop'
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          $Zip = Get-ChildItem 'build_x64\obs-studio-*-windows-x64.zip' | Select-Object -First 1
+          $Exe = Get-ChildItem 'build_installer\output\HoboStreamer-*-Windows-x64-Installer.exe' | Select-Object -First 1
+          if (-not $Zip) { throw 'Windows ZIP missing' }
+          if (-not $Exe) { throw 'Windows installer missing' }
+          Copy-Item $Zip.FullName 'dist\HoboStreamer-Windows-x64-Portable.zip'
+          Copy-Item $Exe.FullName 'dist\HoboStreamer-Windows-x64-Installer.exe'
+
+      - name: Upload Windows artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: hobostreamer-windows-x64
+          path: dist/*
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    runs-on: ubuntu-26.04
+    needs: [metadata, macos, linux, windows]
+    if: needs.metadata.outputs.publish == 'true'
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          fetch-depth: 0
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          pattern: hobostreamer-*
+          path: release
+          merge-multiple: true
+
+      - name: Generate checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
+          sha256sum \
+            HoboStreamer-Windows-x64-Installer.exe \
+            HoboStreamer-Windows-x64-Portable.zip \
+            HoboStreamer-macOS-Apple.dmg \
+            HoboStreamer-macOS-Intel.dmg \
+            HoboStreamer-Linux-x86_64.deb \
+            HoboStreamer-Source.tar.gz \
+            > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.metadata.outputs.version }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+          PRERELEASE: ${{ needs.metadata.outputs.prerelease }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release already exists; replacing assets"
+            gh release upload "$TAG" release/* --clobber
+          else
+            args=(
+              "$TAG"
+              release/*
+              --title "HoboStreamer Studio $VERSION"
+              --generate-notes
+              --target "$GITHUB_SHA"
+            )
+
+            if [[ "$PRERELEASE" == "true" ]]; then
+              args+=(--prerelease)
+            fi
+
+            gh release create "${args[@]}"
+          fi
