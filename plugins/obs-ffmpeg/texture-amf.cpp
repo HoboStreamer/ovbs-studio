@@ -2543,18 +2543,6 @@ static void amf_av1_create_internal(amf_base *enc, obs_data_t *settings)
 	if (res == AMF_OK && p.type == AMF_VARIANT_INTERFACE) {
 		enc->header = AMFBufferPtr(p.pInterface);
 	}
-
-	if (enc->bframes_supported) {
-		amf_int64 b_frames = 0;
-		amf_int64 b_max = 0;
-
-		if (get_av1_property(enc, B_PIC_PATTERN, &b_frames) &&
-		    get_av1_property(enc, MAX_CONSECUTIVE_BPICTURES, &b_max)) {
-			enc->dts_offset = b_frames + 1;
-		} else {
-			enc->dts_offset = 0;
-		}
-	}
 }
 
 static void *amf_av1_create_texencode(obs_data_t *settings, obs_encoder_t *encoder)
