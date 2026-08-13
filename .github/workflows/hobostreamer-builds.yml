@@ -104,6 +104,70 @@ jobs:
           print "xcodeCasPath=${xcode_cas_path}" >> "$GITHUB_OUTPUT"
           xcodebuild -version
 
+      - name: Prefetch OBS Windows dependencies
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $Preset = Get-Content 'CMakePresets.json' -Raw | ConvertFrom-Json
+          $Dependencies = (
+            $Preset.configurePresets |
+              Where-Object { $_.name -eq 'dependencies' }
+          ).vendor.'obsproject.com/obs-studio'.dependencies
+
+          $PrebuiltVersion = $Dependencies.prebuilt.version
+          $QtVersion = $Dependencies.qt6.version
+
+          $Files = @(
+            @{
+              Tag  = $PrebuiltVersion
+              Name = "windows-deps-$PrebuiltVersion-x86.zip"
+              Hash = $Dependencies.prebuilt.hashes.'windows-x86'
+            },
+            @{
+              Tag  = $PrebuiltVersion
+              Name = "windows-deps-$PrebuiltVersion-x64.zip"
+              Hash = $Dependencies.prebuilt.hashes.'windows-x64'
+            },
+            @{
+              Tag  = $QtVersion
+              Name = "windows-deps-qt6-$QtVersion-x64.zip"
+              Hash = $Dependencies.qt6.hashes.'windows-x64'
+            }
+          )
+
+          New-Item -ItemType Directory -Force '.deps' | Out-Null
+
+          foreach ($File in $Files) {
+            $Destination = Join-Path '.deps' $File.Name
+
+            Write-Host "Downloading $($File.Name)"
+
+            gh release download $File.Tag `
+              --repo obsproject/obs-deps `
+              --pattern $File.Name `
+              --dir '.deps' `
+              --clobber
+
+            if (-not (Test-Path $Destination)) {
+              throw "Dependency was not downloaded: $($File.Name)"
+            }
+
+            $Actual = (
+              Get-FileHash $Destination -Algorithm SHA256
+            ).Hash.ToLowerInvariant()
+
+            $Expected = ([string]$File.Hash).ToLowerInvariant()
+
+            if ($Actual -ne $Expected) {
+              throw "SHA256 mismatch for $($File.Name): expected $Expected, got $Actual"
+            }
+
+            Write-Host "Verified $($File.Name)"
+          }
+
       - name: Build
         uses: ./.github/actions/build-obs
         env:

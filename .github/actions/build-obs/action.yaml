@@ -87,42 +87,17 @@ runs:
       working-directory: ${{ inputs.workingDirectory }}
       run: |
         # Run Windows Build
-        $ErrorActionPreference = 'Stop'
-
         $BuildArgs = @{
           Target = '${{ inputs.target }}'
           Configuration = '${{ inputs.config }}'
         }
 
-        if ($Env:RUNNER_DEBUG -ne $null) {
+        if ( $Env:RUNNER_DEBUG -ne $null ) {
           $BuildArgs += @{ Debug = $true }
         }
 
         git fetch origin --no-tags --no-recurse-submodules -q
-
-        $MaxAttempts = 3
-
-        for ($Attempt = 1; $Attempt -le $MaxAttempts; $Attempt++) {
-          try {
-            Write-Host "Windows OBS build attempt $Attempt/$MaxAttempts"
-
-            .github/scripts/Build-Windows.ps1 @BuildArgs
-
-            Write-Host "Windows OBS build succeeded."
-            break
-          }
-          catch {
-            Write-Warning "Windows build attempt $Attempt failed: $($_.Exception.Message)"
-
-            if ($Attempt -eq $MaxAttempts) {
-              throw
-            }
-
-            $Delay = 10 * $Attempt
-            Write-Host "Retrying in $Delay seconds..."
-            Start-Sleep -Seconds $Delay
-          }
-        }
+        .github/scripts/Build-Windows.ps1 @BuildArgs
 
     - name: Create Summary 📊
       if: runner.os == 'Linux'
