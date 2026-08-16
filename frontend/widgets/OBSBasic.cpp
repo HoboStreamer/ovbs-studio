@@ -256,6 +256,11 @@ OBSBasic::OBSBasic(QWidget *parent) : OBSMainWindow(parent), undo_s(ui), ui(new 
 	ui->setupUi(this);
 	ui->previewDisabledWidget->setVisible(false);
 
+#ifdef _WIN32
+	// HoboStreamer updates come from GitHub Releases; do not expose OBS's patch-repair backend.
+	ui->actionRepair->setVisible(false);
+#endif
+
 	/* Set up streaming connections */
 	connect(
 		this, &OBSBasic::StreamingStarting, this, [this] { this->streamingStarting = true; },
@@ -1330,11 +1335,9 @@ void OBSBasic::OBSInit()
 	delete ui->actionShowCrashLogs;
 	delete ui->actionUploadLastCrashLog;
 	delete ui->menuCrashLogs;
-	delete ui->actionCheckForUpdates;
 	ui->actionShowCrashLogs = nullptr;
 	ui->actionUploadLastCrashLog = nullptr;
 	ui->menuCrashLogs = nullptr;
-	ui->actionCheckForUpdates = nullptr;
 #endif
 #endif
 
@@ -1348,14 +1351,16 @@ void OBSBasic::OBSInit()
 	ui->actionShowMacPermissions = nullptr;
 #endif
 
-#if defined(_WIN32) || defined(__APPLE__)
 	if (App()->IsUpdaterDisabled()) {
-		ui->actionCheckForUpdates->setEnabled(false);
+		if (ui->actionCheckForUpdates) {
+			ui->actionCheckForUpdates->setEnabled(false);
+		}
 #if defined(_WIN32)
-		ui->actionRepair->setEnabled(false);
+		if (ui->actionRepair) {
+			ui->actionRepair->setEnabled(false);
+		}
 #endif
 	}
-#endif
 
 #ifndef WHATSNEW_ENABLED
 	delete ui->actionShowWhatsNew;

@@ -21,6 +21,8 @@
 
 #include <dialogs/OBSWhatsNew.hpp>
 
+#include <utility/HoboUpdateThread.hpp>
+
 #ifdef _WIN32
 #include <utility/AutoUpdateThread.hpp>
 #endif
@@ -180,51 +182,38 @@ void OBSBasic::TimedCheckForUpdates()
 		return;
 	}
 
-#if defined(ENABLE_SPARKLE_UPDATER)
-	CheckForUpdates(false);
-#elif _WIN32
-	long long lastUpdate = config_get_int(App()->GetAppConfig(), "General", "LastUpdateCheck");
-	uint32_t lastVersion = config_get_int(App()->GetAppConfig(), "General", "LastVersion");
+	constexpr long long checkInterval = 60LL * 60LL * 24LL; // once per day
+	const long long lastUpdate = config_get_int(App()->GetAppConfig(), "General", "HoboLastUpdateCheck");
+	const long long now = static_cast<long long>(time(nullptr));
 
-	if (lastVersion < LIBOBS_API_VER) {
-		lastUpdate = 0;
-		config_set_int(App()->GetAppConfig(), "General", "LastUpdateCheck", 0);
-	}
-
-	long long t = (long long)time(nullptr);
-	long long secs = t - lastUpdate;
-
-	if (secs > UPDATE_CHECK_INTERVAL) {
+	if (lastUpdate <= 0 || now - lastUpdate > checkInterval) {
 		CheckForUpdates(false);
 	}
-#endif
 }
 
 void OBSBasic::CheckForUpdates(bool manualUpdate)
 {
-#if _WIN32
-	ui->actionCheckForUpdates->setEnabled(false);
-	ui->actionRepair->setEnabled(false);
-
-	if (updateCheckThread && updateCheckThread->isRunning()) {
+	if (App()->IsUpdaterDisabled()) {
 		return;
 	}
-	updateCheckThread.reset(new AutoUpdateThread(manualUpdate));
-	updateCheckThread->start();
-#elif defined(ENABLE_SPARKLE_UPDATER)
-	ui->actionCheckForUpdates->setEnabled(false);
 
 	if (updateCheckThread && updateCheckThread->isRunning()) {
 		return;
 	}
 
-	MacUpdateThread *mut = new MacUpdateThread(manualUpdate);
-	connect(mut, &MacUpdateThread::Result, this, &OBSBasic::MacBranchesFetched, Qt::QueuedConnection);
-	updateCheckThread.reset(mut);
+	if (ui->actionCheckForUpdates) {
+		ui->actionCheckForUpdates->setEnabled(false);
+	}
+
+	HoboUpdateThread *thread = new HoboUpdateThread(manualUpdate);
+	connect(thread, &QThread::finished, this, [this]() {
+		if (ui->actionCheckForUpdates) {
+			ui->actionCheckForUpdates->setEnabled(true);
+		}
+	});
+
+	updateCheckThread.reset(thread);
 	updateCheckThread->start();
-#else
-	UNUSED_PARAMETER(manualUpdate);
-#endif
 }
 
 void OBSBasic::MacBranchesFetched(const QString &branch, bool manualUpdate)

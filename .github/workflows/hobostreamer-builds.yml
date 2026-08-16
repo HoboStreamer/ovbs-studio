@@ -132,6 +132,80 @@ jobs:
           codesign: false
           notarize: false
 
+      - name: Verify macOS WebRTC runtime in DMG
+        run: |
+          set -euo pipefail
+
+          if [[ '${{ matrix.target }}' == 'arm64' ]]; then
+            dmg="$(find build_macos -maxdepth 1 -type f -name 'obs-studio-*-macos-apple.dmg' | head -n1)"
+            expected_arch='arm64'
+          else
+            dmg="$(find build_macos -maxdepth 1 -type f -name 'obs-studio-*-macos-intel.dmg' | head -n1)"
+            expected_arch='x86_64'
+          fi
+
+          [[ -n "$dmg" ]] || { echo "DMG not found"; exit 1; }
+
+          mount_point="${RUNNER_TEMP}/hobostreamer-dmg-${{ matrix.target }}"
+          rm -rf "$mount_point"
+          mkdir -p "$mount_point"
+
+          cleanup() {
+            hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point"
+
+          app="$(find "$mount_point" -maxdepth 2 -type d -name '*.app' | head -n1)"
+          [[ -n "$app" ]] || { echo "No .app bundle found in DMG"; exit 1; }
+
+          plugin="$(find "$app" -type f \( -name 'obs-webrtc' -o -name 'obs-webrtc.so' -o -name 'obs-webrtc.dylib' \) | head -n1)"
+          [[ -n "$plugin" ]] || {
+            echo "DMG is missing the obs-webrtc plugin binary"
+            find "$app" -iname '*webrtc*' -print || true
+            exit 1
+          }
+
+          echo "Packaged WebRTC plugin: $plugin"
+          file "$plugin"
+
+          archs="$(lipo -archs "$plugin")"
+          echo "WebRTC plugin architectures: $archs"
+          [[ " $archs " == *" $expected_arch "* ]] || {
+            echo "obs-webrtc does not contain expected architecture: $expected_arch"
+            exit 1
+          }
+
+          otool -L "$plugin" | tee "${RUNNER_TEMP}/obs-webrtc-${{ matrix.target }}-otool.txt"
+
+          if grep -qi 'datachannel' "${RUNNER_TEMP}/obs-webrtc-${{ matrix.target }}-otool.txt"; then
+            datachannel="$(find "$app" \( -type f -o -type l \) -iname '*datachannel*.dylib' | head -n1)"
+            [[ -n "$datachannel" ]] || {
+              echo "obs-webrtc dynamically links LibDataChannel but the DMG does not bundle its dylib"
+              find "$app" -iname '*datachannel*' -print || true
+              exit 1
+            }
+
+            echo "Packaged LibDataChannel: $datachannel"
+            file "$datachannel"
+            datachannel_archs="$(lipo -archs "$datachannel")"
+            echo "LibDataChannel architectures: $datachannel_archs"
+            [[ " $datachannel_archs " == *" $expected_arch "* ]] || {
+              echo "LibDataChannel does not contain expected architecture: $expected_arch"
+              exit 1
+            }
+          else
+            echo "obs-webrtc does not dynamically reference LibDataChannel; treating it as statically linked."
+          fi
+
+          if grep -E '/Users/runner|/build_macos|/private/tmp' "${RUNNER_TEMP}/obs-webrtc-${{ matrix.target }}-otool.txt"; then
+            echo "obs-webrtc contains an invalid build-machine library path"
+            exit 1
+          fi
+
+          echo "macOS $expected_arch DMG contains a verified WebRTC/WHIP runtime."
+
       - name: Prepare release file
         run: |
           set -euo pipefail
@@ -415,6 +489,35 @@ jobs:
           target: x64
           config: ${{ env.BUILD_CONFIG }}
 
+      - name: Verify Windows WebRTC runtime in portable ZIP
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $Zip = Get-ChildItem 'build_x64\obs-studio-*-windows-x64.zip' | Select-Object -First 1
+          if (-not $Zip) { throw 'Windows portable ZIP was not created' }
+
+          $VerifyRoot = Join-Path $env:RUNNER_TEMP 'hobostreamer-windows-webrtc'
+          Remove-Item -Recurse -Force $VerifyRoot -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $VerifyRoot | Out-Null
+          Expand-Archive -Path $Zip.FullName -DestinationPath $VerifyRoot -Force
+
+          $Plugin = Join-Path $VerifyRoot 'obs-plugins\64bit\obs-webrtc.dll'
+          $DataChannel = Join-Path $VerifyRoot 'bin\64bit\datachannel.dll'
+
+          if (-not (Test-Path $Plugin -PathType Leaf)) {
+            throw "Portable ZIP is missing obs-webrtc.dll at $Plugin"
+          }
+          if (-not (Test-Path $DataChannel -PathType Leaf)) {
+            throw "Portable ZIP is missing datachannel.dll at $DataChannel"
+          }
+
+          if ((Get-Item $Plugin).Length -le 0) { throw 'obs-webrtc.dll is empty' }
+          if ((Get-Item $DataChannel).Length -le 0) { throw 'datachannel.dll is empty' }
+
+          Write-Host "Verified WebRTC plugin: $Plugin"
+          Write-Host "Verified LibDataChannel runtime: $DataChannel"
+          Write-Host 'Windows portable package contains the required WebRTC/WHIP runtime.'
+
       - name: Build unsigned Windows installer
         run: |
           $ErrorActionPreference = 'Stop'
@@ -425,6 +528,11 @@ jobs:
           $Output = Join-Path $PWD 'build_installer\output'
           New-Item -ItemType Directory -Force -Path $Payload, $Output | Out-Null
           Expand-Archive -Path $Zip.FullName -DestinationPath $Payload -Force
+
+          $PayloadWebRTC = Join-Path $Payload 'obs-plugins\64bit\obs-webrtc.dll'
+          $PayloadDataChannel = Join-Path $Payload 'bin\64bit\datachannel.dll'
+          if (-not (Test-Path $PayloadWebRTC -PathType Leaf)) { throw 'Installer payload is missing obs-webrtc.dll' }
+          if (-not (Test-Path $PayloadDataChannel -PathType Leaf)) { throw 'Installer payload is missing datachannel.dll' }
 
           $ISCC = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
           if (-not (Test-Path $ISCC)) {
@@ -438,6 +546,32 @@ jobs:
             "/DMyAppVersion=${{ needs.metadata.outputs.version }}" `
             "/DSourceDir=$Payload" `
             "/DOutputDir=$Output"
+
+      - name: Verify Windows installer contains WebRTC runtime
+        run: |
+          $ErrorActionPreference = 'Stop'
+
+          $Exe = Get-ChildItem 'build_installer\output\HoboStreamer-*-Windows-x64-Installer.exe' | Select-Object -First 1
+          if (-not $Exe) { throw 'Windows installer missing' }
+
+          $SevenZip = 'C:\Program Files\7-Zip\7z.exe'
+          if (-not (Test-Path $SevenZip -PathType Leaf)) {
+            throw "7-Zip not found at $SevenZip"
+          }
+
+          $Listing = (& $SevenZip l $Exe.FullName | Out-String)
+          if ($LASTEXITCODE -ne 0) {
+            throw 'Could not inspect the generated Windows installer'
+          }
+
+          if ($Listing -notmatch 'obs-webrtc\.dll') {
+            throw 'Final Windows installer does not contain obs-webrtc.dll'
+          }
+          if ($Listing -notmatch 'datachannel\.dll') {
+            throw 'Final Windows installer does not contain datachannel.dll'
+          }
+
+          Write-Host 'Final Windows installer contains the required WebRTC/WHIP runtime.'
 
       - name: Prepare release files
         run: |
@@ -480,6 +614,21 @@ jobs:
           path: release
           merge-multiple: true
 
+      - name: Generate HoboStreamer update manifest
+        shell: bash
+        env:
+          VERSION: ${{ needs.metadata.outputs.version }}
+          TAG: ${{ needs.metadata.outputs.tag }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/make-hobostreamer-update-manifest.py \
+            --release-dir release \
+            --version "$VERSION" \
+            --tag "$TAG" \
+            --commit "$GITHUB_SHA" \
+            --output release/HoboStreamer-update.json
+          cat release/HoboStreamer-update.json
+
       - name: Generate checksums
         shell: bash
         run: |
@@ -492,6 +641,7 @@ jobs:
             HoboStreamer-macOS-Intel.dmg \
             HoboStreamer-Linux-x86_64.deb \
             HoboStreamer-Source.tar.gz \
+            HoboStreamer-update.json \
             > SHA256SUMS.txt
           cat SHA256SUMS.txt
 

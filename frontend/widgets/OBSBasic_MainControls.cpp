@@ -119,8 +119,12 @@ void OBSBasic::CreateFiltersWindow(obs_source_t *source)
 
 void OBSBasic::updateCheckFinished()
 {
-	ui->actionCheckForUpdates->setEnabled(true);
-	ui->actionRepair->setEnabled(true);
+	if (ui->actionCheckForUpdates) {
+		ui->actionCheckForUpdates->setEnabled(true);
+	}
+	if (ui->actionRepair) {
+		ui->actionRepair->setEnabled(true);
+	}
 }
 
 void OBSBasic::ResetUI()
@@ -378,16 +382,11 @@ void OBSBasic::on_actionCheckForUpdates_triggered()
 
 void OBSBasic::on_actionRepair_triggered()
 {
-#if defined(_WIN32)
-	ui->actionCheckForUpdates->setEnabled(false);
-	ui->actionRepair->setEnabled(false);
-
-	if (updateCheckThread && updateCheckThread->isRunning()) {
-		return;
-	}
-
-	updateCheckThread.reset(new AutoUpdateThread(false, true));
-	updateCheckThread->start();
+#ifdef _WIN32
+	OBSMessageBox::information(
+		this, QStringLiteral("HoboStreamer Studio"),
+		QStringLiteral("Repair through the upstream OBS updater is disabled in HoboStreamer Studio. "
+			       "Install the latest HoboStreamer Studio release from GitHub instead."));
 #endif
 }
 
@@ -457,9 +456,8 @@ void OBSBasic::on_actionShowWhatsNew_triggered()
 
 void OBSBasic::on_actionReleaseNotes_triggered()
 {
-	QString addr("https://github.com/obsproject/obs-studio/releases");
-	QUrl url(QString("%1/%2").arg(addr, obs_get_version_string()), QUrl::TolerantMode);
-	QDesktopServices::openUrl(url);
+	QDesktopServices::openUrl(
+		QUrl(QStringLiteral("https://github.com/HoboStreamer/ovbs-studio/releases/latest"), QUrl::TolerantMode));
 }
 
 void OBSBasic::on_actionShowSettingsFolder_triggered()

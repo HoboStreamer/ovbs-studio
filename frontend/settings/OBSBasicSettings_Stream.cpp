@@ -138,7 +138,7 @@ void OBSBasicSettings::LoadStream1Settings()
 	protocol = QT_UTF8(obs_service_get_protocol(service_obj));
 	const char *bearer_token = obs_data_get_string(settings, "bearer_token");
 
-	bool is_hobo_rtmp = is_rtmp_custom && server && strcmp(server, "rtmp://rtmp.hobostreamer.com:1935/live") == 0;
+	bool is_hobo_rtmp = is_rtmp_custom && server && QString::fromUtf8(server).startsWith(QStringLiteral("rtmp://rtmp.hobostreamer.com"));
 	bool is_hobo_whip = is_whip && server && QString::fromUtf8(server).startsWith(QStringLiteral("https://whip.hobostreamer.com/whip/"));
 
 	if (is_rtmp_custom || is_whip) {

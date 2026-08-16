@@ -43,6 +43,8 @@ target_sources(
     utility/QuickTransition.hpp
     utility/RemoteTextThread.cpp
     utility/RemoteTextThread.hpp
+    utility/HoboUpdateThread.cpp
+    utility/HoboUpdateThread.hpp
     utility/RemuxEntryPathItemDelegate.cpp
     utility/RemuxEntryPathItemDelegate.hpp
     utility/RemuxQueueModel.cpp
