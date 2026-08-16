@@ -11,18 +11,13 @@ setopt NO_AUTO_PUSHD
 setopt NO_PUSHD_IGNORE_DUPS
 setopt FUNCTION_ARGZERO
 
-## Enable for script debugging
-#setopt WARN_CREATE_GLOBAL
-#setopt WARN_NESTED_VAR
-#setopt XTRACE
-
-if (( ! ${+CI} )) {
+if (( ! ${+CI} )); then
   print -u2 -PR "%F{1}    ✖︎ ${ZSH_ARGZERO:t:r} requires CI environment.%f"
   exit 1
-}
+fi
 
 autoload -Uz is-at-least && if ! is-at-least 5.9; then
-  print -u2 -PR "%F{1}${funcstack[1]##*/}:%f Running on Zsh version %B${ZSH_VERSION}%b, but Zsh %B5.9%b is the minimum supported version. Upgrade Zsh to fix this issue."
+  print -u2 -PR "%F{1}${funcstack[1]##*/}:%f Running on Zsh version %B${ZSH_VERSION}%b, but Zsh %B5.9%b is the minimum supported version."
   exit 1
 fi
 
@@ -32,7 +27,6 @@ TRAPZERR() {
   Callstack:
   ${(j:\n     :)funcfiletrace}
   "
-
   exit 2
 }
 
@@ -45,45 +39,39 @@ build() {
   autoload -Uz log_group log_error log_output check_${host_os}
 
   local -i debug=0
-
   local target
-  local -r -a _valid_targets=(
-    macos-x86_64
-    macos-arm64
-    ubuntu-x86_64
-  )
-
+  local -r -a _valid_targets=(macos-x86_64 macos-arm64 ubuntu-x86_64)
   local config='RelWithDebInfo'
   local -r -a _valid_configs=(Debug RelWithDebInfo Release MinSizeRel)
   local -i codesign=0
   local -i analyze=0
-
   local -a args
-  while (( $# )) {
+
+  while (( $# )); do
     case ${1} {
       -t|--target|-c|--config)
-        if (( $# == 1 )) || [[ ${2:0:1} == '-' ]] {
+        if (( $# == 1 )) || [[ ${2:0:1} == '-' ]]; then
           log_error "Missing value for option %B${1}%b"
           exit 2
-        }
+        fi
         ;;
     }
     case ${1} {
       --) shift; args+=($@); break ;;
       -a|--analyze) analyze=1; shift ;;
       -t|--target)
-        if (( ! ${_valid_targets[(Ie)${2}]} )) {
+        if (( ! ${_valid_targets[(Ie)${2}]} )); then
           log_error "Invalid value %B${2}%b for option %B${1}%b"
           exit 2
-        }
+        fi
         target=${2}
         shift 2
         ;;
       -c|--config)
-        if (( ! ${_valid_configs[(Ie)${2}]} )) {
+        if (( ! ${_valid_configs[(Ie)${2}]} )); then
           log_error "Invalid value %B${2}%b for option %B${1}%b"
           exit 2
-        }
+        fi
         config=${2}
         shift 2
         ;;
@@ -91,22 +79,21 @@ build() {
       --debug) debug=1; shift ;;
       *) log_error "Unknown option: %B${1}%b"; log_output ${_usage}; exit 2 ;;
     }
-  }
+  done
 
   : "${target:="${host_os}-${CPUTYPE}"}"
-
   set -- ${(@)args}
 
   check_${host_os}
 
-  if [[ ${host_os} == ubuntu ]] {
+  if [[ ${host_os} == ubuntu ]]; then
     autoload -Uz setup_ubuntu setup_ccache
-    setup_ccache
+    # setup_ubuntu installs ccache along with the rest of the Linux toolchain.
     setup_ubuntu
-  }
+    setup_ccache
+  fi
 
   local product_name='obs-studio'
-
   pushd ${project_root}
 
   local -a cmake_args=()
@@ -122,31 +109,31 @@ build() {
         -DCMAKE_OSX_ARCHITECTURES:STRING=${target##*-}
       )
 
-      if (( debug )) {
+      if (( debug )); then
         cmake_args+=(CMAKE_XCODE_ATTRIBUTE_COMPILATION_CACHE_ENABLE_DIAGNOSTIC_REMARKS:STRING=YES)
-      }
+      fi
 
       typeset -gx NSUnbufferedIO=YES
-
       typeset -gx CODESIGN_IDENT="${CODESIGN_IDENT:--}"
-      if (( codesign )) && [[ -z ${CODESIGN_TEAM} ]] {
+
+      if (( codesign )) && [[ -z ${CODESIGN_TEAM} ]]; then
         typeset -gx CODESIGN_TEAM="$(print "${CODESIGN_IDENT}" | /usr/bin/sed -En 's/.+\((.+)\)/\1/p')"
-      }
+      fi
 
       log_group "Configuring ${product_name}..."
       cmake -S ${project_root} ${cmake_args}
 
       log_group "Building ${product_name}..."
       run_xcodebuild() {
-        if (( debug )) {
+        if (( debug )); then
           xcodebuild ${@}
-        } else {
-          if [[ ${GITHUB_EVENT_NAME} == push ]] {
+        else
+          if [[ ${GITHUB_EVENT_NAME} == push ]]; then
             xcodebuild ${@} 2>&1 | xcbeautify --renderer terminal
-          } else {
+          else
             xcodebuild ${@} 2>&1 | xcbeautify --renderer github-actions
-          }
-        }
+          fi
+        fi
       }
 
       local -a build_args=(
@@ -191,29 +178,36 @@ build() {
       )
 
       pushd build_macos
-      if (( analyze )) {
+      if (( analyze )); then
         run_xcodebuild ${analyze_args}
-      } else {
-        if [[ ${GITHUB_EVENT_NAME} == push && ${GITHUB_REF_NAME} =~ [0-9]+.[0-9]+.[0-9]+(-(rc|beta).+)? ]] {
+      else
+        if [[ ${GITHUB_EVENT_NAME} == push && ${GITHUB_REF_NAME} =~ [0-9]+.[0-9]+.[0-9]+(-(rc|beta).+)? ]]; then
           run_xcodebuild ${archive_args}
           run_xcodebuild ${export_args}
-        } else {
+        else
           run_xcodebuild ${build_args}
-
           rm -rf OBS.app
           mkdir OBS.app
           ditto frontend/${config}/OBS.app OBS.app
-        }
-      }
+        fi
+      fi
       popd
       ;;
+
     ubuntu-*)
       local cmake_bin='/usr/bin/cmake'
+
+      if [[ -z ${LIBDATACHANNEL_ROOT:-} || -z ${LIBDATACHANNEL_BUNDLE_DIR:-} ]]; then
+        log_error 'LibDataChannel was not prepared by setup_ubuntu.'
+        return 2
+      fi
+
       cmake_args+=(
         --preset ubuntu-ci
         -DENABLE_BROWSER:BOOL=ON
         -DENABLE_WEBRTC:BOOL=ON
-        -DOBS_VERSION_OVERRIDE:STRING=34.0.0
+        -DCMAKE_PREFIX_PATH:PATH="${LIBDATACHANNEL_ROOT}"
+        -DLIBDATACHANNEL_BUNDLE_DIR:PATH="${LIBDATACHANNEL_BUNDLE_DIR}"
         -DCEF_ROOT_DIR:PATH="${project_root}/.deps/cef_binary_${CEF_VERSION}_${target//ubuntu-/linux_}"
       )
 
@@ -232,8 +226,15 @@ build() {
       log_group "Installing ${product_name}..."
       if (( debug )) cmake_install_args+=(--verbose)
       ${cmake_bin} ${cmake_install_args}
+
+      local installed_webrtc="$(find ${project_root}/build_${target%%-*}/install/${config} -type f -name 'obs-webrtc.so' | head -n1)"
+      if [[ -z ${installed_webrtc} ]]; then
+        log_error 'obs-webrtc.so was not installed. WebRTC/WHIP is required for HoboStreamer.'
+        return 2
+      fi
       ;;
   }
+
   popd
   log_group
 }
