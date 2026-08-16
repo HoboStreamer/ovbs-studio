@@ -190,12 +190,46 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          plugin="$(find build_ubuntu -type f -name 'obs-webrtc.so' | head -n1)"
-          [[ -n "$plugin" ]] || { echo "obs-webrtc.so was not built"; exit 1; }
+
+          install_root="build_ubuntu/install/${BUILD_CONFIG}"
+
+          plugin="$(find "$install_root" -type f -name 'obs-webrtc.so' | head -n1)"
+          [[ -n "$plugin" ]] || {
+            echo "obs-webrtc.so was not built"
+            exit 1
+          }
+
+          libdatachannel="$(find "$install_root" \( -type f -o -type l \) -name 'libdatachannel.so*' | head -n1)"
+          [[ -n "$libdatachannel" ]] || {
+            echo "libdatachannel was not installed into the OBS staging tree"
+            exit 1
+          }
+
           echo "Found WebRTC plugin: $plugin"
-          ldd "$plugin"
-          if ldd "$plugin" | grep -q 'libdatachannel.*not found'; then
-            echo "obs-webrtc.so cannot resolve libdatachannel"
+          echo "Found LibDataChannel: $libdatachannel"
+
+          mapfile -t lib_dirs < <(
+            find "$install_root" \( -type f -o -type l \) \
+              \( -name '*.so' -o -name '*.so.*' \) \
+              -printf '%h\n' |
+              sort -u
+          )
+
+          [[ "${#lib_dirs[@]}" -gt 0 ]] || {
+            echo "No library directories found in OBS install tree"
+            exit 1
+          }
+
+          library_path="$(IFS=:; echo "${lib_dirs[*]}")"
+
+          echo "Verifying plugin using staged OBS libraries:"
+          echo "$library_path"
+
+          LD_LIBRARY_PATH="$library_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            ldd "$plugin" | tee /tmp/obs-webrtc-ldd.txt
+
+          if grep -q 'not found' /tmp/obs-webrtc-ldd.txt; then
+            echo "obs-webrtc.so has unresolved staged runtime libraries"
             exit 1
           fi
 
@@ -206,15 +240,60 @@ jobs:
           config: ${{ env.BUILD_CONFIG }}
           package: true
 
-      - name: Verify Linux package contains WebRTC runtime
+      - name: Verify Linux package contains working WebRTC runtime
         shell: bash
         run: |
           set -euo pipefail
+
           deb="$(find build_ubuntu -maxdepth 1 -type f -name 'obs-studio-*-x86_64-ubuntu-gnu.deb' | head -n1)"
-          [[ -n "$deb" ]] || { echo "DEB not found"; exit 1; }
-          dpkg-deb -c "$deb" | tee /tmp/hobostreamer-deb-files.txt
-          grep -q 'obs-webrtc.so' /tmp/hobostreamer-deb-files.txt || { echo "DEB is missing obs-webrtc.so"; exit 1; }
-          grep -q 'libdatachannel.so' /tmp/hobostreamer-deb-files.txt || { echo "DEB is missing bundled libdatachannel"; exit 1; }
+          [[ -n "$deb" ]] || {
+            echo "DEB not found"
+            exit 1
+          }
+
+          package_root="/tmp/hobostreamer-deb-root"
+          rm -rf "$package_root"
+          mkdir -p "$package_root"
+          dpkg-deb -x "$deb" "$package_root"
+
+          plugin="$(find "$package_root" -type f -name 'obs-webrtc.so' | head -n1)"
+          [[ -n "$plugin" ]] || {
+            echo "DEB is missing obs-webrtc.so"
+            exit 1
+          }
+
+          libdatachannel="$(find "$package_root" \( -type f -o -type l \) -name 'libdatachannel.so*' | head -n1)"
+          [[ -n "$libdatachannel" ]] || {
+            echo "DEB is missing bundled libdatachannel"
+            exit 1
+          }
+
+          echo "Packaged WebRTC plugin: $plugin"
+          echo "Packaged LibDataChannel: $libdatachannel"
+
+          mapfile -t lib_dirs < <(
+            find "$package_root" \( -type f -o -type l \) \
+              \( -name '*.so' -o -name '*.so.*' \) \
+              -printf '%h\n' |
+              sort -u
+          )
+
+          [[ "${#lib_dirs[@]}" -gt 0 ]] || {
+            echo "No library directories found in DEB"
+            exit 1
+          }
+
+          library_path="$(IFS=:; echo "${lib_dirs[*]}")"
+
+          LD_LIBRARY_PATH="$library_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
+            ldd "$plugin" | tee /tmp/hobostreamer-packaged-webrtc-ldd.txt
+
+          if grep -q 'not found' /tmp/hobostreamer-packaged-webrtc-ldd.txt; then
+            echo "Packaged obs-webrtc.so has unresolved runtime libraries"
+            exit 1
+          fi
+
+          echo "Linux DEB contains a resolvable WebRTC/WHIP runtime."
 
       - name: Prepare release files
         shell: bash
