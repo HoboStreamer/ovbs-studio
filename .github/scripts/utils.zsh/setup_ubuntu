@@ -1,14 +1,14 @@
-autoload -Uz log_group log_error log_status log_info log_debug
+autoload -Uz log_group log_error log_status log_debug
 
-if (( ! ${+commands[curl]} )) {
+if (( ! ${+commands[curl]} )); then
   log_error 'curl not available.'
   return 2
-}
+fi
 
-if (( ! ${+commands[jq]} )) {
+if (( ! ${+commands[jq]} )); then
   log_error 'jq not available.'
   return 2
-}
+fi
 
 local -a curl_opts=(--show-error --silent --location -O ${@})
 
@@ -31,10 +31,11 @@ IFS=';' read -r deps_version deps_baseurl deps_label deps_hash deps_revision <<<
     | join(";")
   ' ${project_root}/CMakePresets.json)"
 
-if (( ! deps_version )) {
-  log_error 'No valid cef spec found in buildspec.json.'
+if (( ! deps_version )); then
+  log_error 'No valid CEF spec found in CMakePresets.json.'
   return 2
-}
+fi
+
 log_group 'Setting up pre-built Chromium Embedded Framework...'
 
 pushd ${project_root}/.deps
@@ -48,22 +49,24 @@ curl ${curl_opts} ${_url} && \
   log_status "Downloaded ${deps_label} for ${target}."
 
 read -r artifact_checksum _ <<< "$(sha256sum ${_filename})"
-if [[ ${deps_hash} != ${artifact_checksum} ]] {
+if [[ ${deps_hash} != ${artifact_checksum} ]]; then
   log_error "Checksum of downloaded ${deps_label} does not match specification.
 Expected : ${deps_hash}
 Actual   : ${artifact_checksum}"
   return 2
-}
+fi
+
 log_status "Checksum of downloaded ${deps_label} matches."
 mkdir -p ${_target} && pushd ${_target}
-
 XZ_OPT=-T0 tar --strip-components 1 -xJf ../${_filename} && log_status "${deps_label} extracted."
+popd
 popd
 
 log_group 'Installing obs-studio build dependencies from apt...'
 
 sudo apt-get install -y --no-install-recommends \
-  build-essential libglib2.0-dev \
+  build-essential cmake ninja-build git pkg-config ccache \
+  libglib2.0-dev \
   extra-cmake-modules lsb-release dh-cmake \
   libcurl4-openssl-dev \
   libavcodec-dev libavdevice-dev libavfilter-dev libavformat-dev libavutil-dev \
@@ -77,11 +80,10 @@ sudo apt-get install -y --no-install-recommends \
   libx264-dev \
   libmbedtls-dev \
   libgl1-mesa-dev \
-  libjansson-dev \
   uthash-dev \
   libsimde-dev \
   libluajit-5.1-dev python3-dev \
-  libx11-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xinerama0-dev \
+  libx11-dev libxcb-randr0-dev libxcb-shm0-dev libxcb-xinerama0-dev libxcb-xinput-dev \
   libxcb-composite0-dev libxinerama-dev libxcb1-dev libx11-xcb-dev libxcb-xfixes0-dev \
   swig libcmocka-dev libxss-dev libglvnd-dev \
   libxkbcommon-dev libatk1.0-dev libatk-bridge2.0-dev libxcomposite-dev libxdamage-dev \
@@ -92,3 +94,74 @@ sudo apt-get install -y --no-install-recommends \
   libffmpeg-nvenc-dev librist-dev libsrt-openssl-dev \
   qt6-base-dev libqt6svg6-dev qt6-base-private-dev \
   libvpl-dev libvpl2
+
+# Upstream OBS disables WebRTC in Ubuntu CI, so Ubuntu does not provide
+# LibDataChannel through the normal OBS dependency setup. HoboStreamer requires
+# WebRTC/WHIP, so build the exact LibDataChannel revision pinned by obs-deps.
+log_group 'Building LibDataChannel for HoboStreamer WebRTC/WHIP...'
+
+local libdatachannel_version='0.24.2'
+local libdatachannel_tag="v${libdatachannel_version}"
+local libdatachannel_commit='4e4f4892dccb2a57fe3a490d0c9d958de4244e74'
+local libdatachannel_src="${project_root}/.deps/libdatachannel-${libdatachannel_version}"
+local libdatachannel_prefix="${project_root}/.deps/libdatachannel-${libdatachannel_version}-install"
+local libdatachannel_config="${libdatachannel_prefix}/lib/cmake/LibDataChannel/LibDataChannelConfig.cmake"
+
+if [[ ! -f ${libdatachannel_config} ]]; then
+  rm -rf ${libdatachannel_src} ${libdatachannel_prefix}
+
+  git clone \
+    --branch ${libdatachannel_tag} \
+    --depth 1 \
+    --recurse-submodules \
+    https://github.com/paullouisageneau/libdatachannel.git \
+    ${libdatachannel_src}
+
+  local actual_commit="$(git -C ${libdatachannel_src} rev-parse HEAD)"
+  if [[ ${actual_commit} != ${libdatachannel_commit} ]]; then
+    log_error "Unexpected LibDataChannel commit.
+Expected : ${libdatachannel_commit}
+Actual   : ${actual_commit}"
+    return 2
+  fi
+
+  cmake \
+    -S ${libdatachannel_src} \
+    -B ${libdatachannel_src}/build \
+    -G Ninja \
+    -DCMAKE_BUILD_TYPE=Release \
+    -DCMAKE_INSTALL_PREFIX=${libdatachannel_prefix} \
+    -DCMAKE_INSTALL_LIBDIR=lib \
+    -DBUILD_SHARED_LIBS=ON \
+    -DBUILD_SHARED_DEPS_LIBS=OFF \
+    -DUSE_MBEDTLS=ON \
+    -DNO_WEBSOCKET=ON \
+    -DNO_TESTS=ON \
+    -DNO_EXAMPLES=ON \
+    -DCMAKE_POLICY_VERSION_MINIMUM=3.5
+
+  cmake \
+    --build ${libdatachannel_src}/build \
+    --config Release \
+    --parallel "$(nproc)"
+
+  cmake \
+    --install ${libdatachannel_src}/build \
+    --config Release \
+    --strip
+fi
+
+if [[ ! -f ${libdatachannel_config} ]]; then
+  log_error "LibDataChannel CMake package was not installed at ${libdatachannel_config}"
+  return 2
+fi
+
+if [[ ! -e ${libdatachannel_prefix}/lib/libdatachannel.so ]]; then
+  log_error 'LibDataChannel shared library was not installed.'
+  return 2
+fi
+
+typeset -gx LIBDATACHANNEL_ROOT=${libdatachannel_prefix}
+typeset -gx LIBDATACHANNEL_BUNDLE_DIR=${libdatachannel_prefix}/lib
+
+log_status "LibDataChannel ${libdatachannel_version} ready at ${LIBDATACHANNEL_ROOT}."

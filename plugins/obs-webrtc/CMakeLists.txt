@@ -19,6 +19,34 @@ target_sources(
 
 target_link_libraries(obs-webrtc PRIVATE OBS::libobs LibDataChannel::LibDataChannel CURL::libcurl)
 
+# HoboStreamer requires WebRTC/WHIP on Linux. Upstream OBS disables WebRTC in
+# Ubuntu CI, so we build LibDataChannel ourselves and bundle its runtime library
+# into the DEB.
+if(OS_LINUX)
+  set(
+    LIBDATACHANNEL_BUNDLE_DIR
+    ""
+    CACHE PATH
+    "Directory containing libdatachannel.so files to bundle in Linux packages"
+  )
+
+  if(LIBDATACHANNEL_BUNDLE_DIR)
+    if(NOT EXISTS "${LIBDATACHANNEL_BUNDLE_DIR}/libdatachannel.so")
+      message(
+        FATAL_ERROR
+        "LIBDATACHANNEL_BUNDLE_DIR does not contain libdatachannel.so: ${LIBDATACHANNEL_BUNDLE_DIR}"
+      )
+    endif()
+
+    install(
+      DIRECTORY "${LIBDATACHANNEL_BUNDLE_DIR}/"
+      DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+      FILES_MATCHING
+      PATTERN "libdatachannel.so*"
+    )
+  endif()
+endif()
+
 if(OS_WINDOWS)
   configure_file(cmake/windows/obs-module.rc.in obs-webrtc.rc)
   target_sources(obs-webrtc PRIVATE obs-webrtc.rc)

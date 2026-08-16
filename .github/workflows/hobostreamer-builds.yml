@@ -79,12 +79,14 @@ jobs:
       fail-fast: false
       matrix:
         target: [arm64, x86_64]
+
     defaults:
       run:
         shell: zsh --no-rcs --errexit --pipefail {0}
+
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
           submodules: recursive
@@ -103,70 +105,6 @@ jobs:
           mkdir -p "${xcode_cas_path}"
           print "xcodeCasPath=${xcode_cas_path}" >> "$GITHUB_OUTPUT"
           xcodebuild -version
-
-      - name: Prefetch OBS Windows dependencies
-        shell: pwsh
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          $ErrorActionPreference = 'Stop'
-
-          $Preset = Get-Content 'CMakePresets.json' -Raw | ConvertFrom-Json
-          $Dependencies = (
-            $Preset.configurePresets |
-              Where-Object { $_.name -eq 'dependencies' }
-          ).vendor.'obsproject.com/obs-studio'.dependencies
-
-          $PrebuiltVersion = $Dependencies.prebuilt.version
-          $QtVersion = $Dependencies.qt6.version
-
-          $Files = @(
-            @{
-              Tag  = $PrebuiltVersion
-              Name = "windows-deps-$PrebuiltVersion-x86.zip"
-              Hash = $Dependencies.prebuilt.hashes.'windows-x86'
-            },
-            @{
-              Tag  = $PrebuiltVersion
-              Name = "windows-deps-$PrebuiltVersion-x64.zip"
-              Hash = $Dependencies.prebuilt.hashes.'windows-x64'
-            },
-            @{
-              Tag  = $QtVersion
-              Name = "windows-deps-qt6-$QtVersion-x64.zip"
-              Hash = $Dependencies.qt6.hashes.'windows-x64'
-            }
-          )
-
-          New-Item -ItemType Directory -Force '.deps' | Out-Null
-
-          foreach ($File in $Files) {
-            $Destination = Join-Path '.deps' $File.Name
-
-            Write-Host "Downloading $($File.Name)"
-
-            gh release download $File.Tag `
-              --repo obsproject/obs-deps `
-              --pattern $File.Name `
-              --dir '.deps' `
-              --clobber
-
-            if (-not (Test-Path $Destination)) {
-              throw "Dependency was not downloaded: $($File.Name)"
-            }
-
-            $Actual = (
-              Get-FileHash $Destination -Algorithm SHA256
-            ).Hash.ToLowerInvariant()
-
-            $Expected = ([string]$File.Hash).ToLowerInvariant()
-
-            if ($Actual -ne $Expected) {
-              throw "SHA256 mismatch for $($File.Name): expected $Expected, got $Actual"
-            }
-
-            Write-Host "Verified $($File.Name)"
-          }
 
       - name: Build
         uses: ./.github/actions/build-obs
@@ -196,6 +134,7 @@ jobs:
 
       - name: Prepare release file
         run: |
+          set -euo pipefail
           mkdir -p dist
           if [[ '${{ matrix.target }}' == 'arm64' ]]; then
             src="$(find build_macos -maxdepth 1 -type f -name 'obs-studio-*-macos-apple.dmg' | head -n1)"
@@ -208,12 +147,13 @@ jobs:
           cp -v "$src" "$dst"
 
       - name: Upload macOS artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: hobostreamer-macos-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
   linux:
     name: Linux x86_64
@@ -221,7 +161,7 @@ jobs:
     needs: metadata
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
           submodules: recursive
@@ -231,7 +171,7 @@ jobs:
         shell: bash
         run: git tag -f '${{ needs.metadata.outputs.tag }}' "$GITHUB_SHA"
 
-      - name: Build
+      - name: Build with WebRTC/WHIP
         uses: ./.github/actions/build-obs
         env:
           TWITCH_CLIENTID: ${{ secrets.TWITCH_CLIENT_ID }}
@@ -246,12 +186,35 @@ jobs:
           target: x86_64
           config: ${{ env.BUILD_CONFIG }}
 
+      - name: Verify Linux WebRTC plugin
+        shell: bash
+        run: |
+          set -euo pipefail
+          plugin="$(find build_ubuntu -type f -name 'obs-webrtc.so' | head -n1)"
+          [[ -n "$plugin" ]] || { echo "obs-webrtc.so was not built"; exit 1; }
+          echo "Found WebRTC plugin: $plugin"
+          ldd "$plugin"
+          if ldd "$plugin" | grep -q 'libdatachannel.*not found'; then
+            echo "obs-webrtc.so cannot resolve libdatachannel"
+            exit 1
+          fi
+
       - name: Package Linux
         uses: ./.github/actions/package-obs
         with:
           target: x86_64
           config: ${{ env.BUILD_CONFIG }}
           package: true
+
+      - name: Verify Linux package contains WebRTC runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb="$(find build_ubuntu -maxdepth 1 -type f -name 'obs-studio-*-x86_64-ubuntu-gnu.deb' | head -n1)"
+          [[ -n "$deb" ]] || { echo "DEB not found"; exit 1; }
+          dpkg-deb -c "$deb" | tee /tmp/hobostreamer-deb-files.txt
+          grep -q 'obs-webrtc.so' /tmp/hobostreamer-deb-files.txt || { echo "DEB is missing obs-webrtc.so"; exit 1; }
+          grep -q 'libdatachannel.so' /tmp/hobostreamer-deb-files.txt || { echo "DEB is missing bundled libdatachannel"; exit 1; }
 
       - name: Prepare release files
         shell: bash
@@ -266,12 +229,13 @@ jobs:
           cp -v "$source_archive" dist/HoboStreamer-Source.tar.gz
 
       - name: Upload Linux artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: hobostreamer-linux-x86_64
           path: dist/*
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
   windows:
     name: Windows x64
@@ -280,9 +244,10 @@ jobs:
     defaults:
       run:
         shell: pwsh
+
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
           submodules: recursive
@@ -290,6 +255,64 @@ jobs:
       - name: Create local version tag for manual build
         if: github.event_name == 'workflow_dispatch'
         run: git tag -f '${{ needs.metadata.outputs.tag }}' "$env:GITHUB_SHA"
+
+      - name: Prefetch OBS Windows dependencies
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $Preset = Get-Content 'CMakePresets.json' -Raw | ConvertFrom-Json
+          $Dependencies = (
+            $Preset.configurePresets |
+              Where-Object { $_.name -eq 'dependencies' }
+          ).vendor.'obsproject.com/obs-studio'.dependencies
+
+          $PrebuiltVersion = $Dependencies.prebuilt.version
+          $QtVersion = $Dependencies.qt6.version
+
+          $Files = @(
+            @{ Tag = $PrebuiltVersion; Name = "windows-deps-$PrebuiltVersion-x86.zip"; Hash = $Dependencies.prebuilt.hashes.'windows-x86' },
+            @{ Tag = $PrebuiltVersion; Name = "windows-deps-$PrebuiltVersion-x64.zip"; Hash = $Dependencies.prebuilt.hashes.'windows-x64' },
+            @{ Tag = $QtVersion; Name = "windows-deps-qt6-$QtVersion-x64.zip"; Hash = $Dependencies.qt6.hashes.'windows-x64' }
+          )
+
+          New-Item -ItemType Directory -Force '.deps' | Out-Null
+
+          foreach ($File in $Files) {
+            $Destination = Join-Path '.deps' $File.Name
+            $Downloaded = $false
+
+            for ($Attempt = 1; $Attempt -le 3; $Attempt++) {
+              Write-Host "Downloading $($File.Name), attempt $Attempt/3"
+              gh release download $File.Tag `
+                --repo obsproject/obs-deps `
+                --pattern $File.Name `
+                --dir '.deps' `
+                --clobber
+
+              if ($LASTEXITCODE -eq 0 -and (Test-Path $Destination)) {
+                $Downloaded = $true
+                break
+              }
+
+              if ($Attempt -lt 3) {
+                Start-Sleep -Seconds (5 * $Attempt)
+              }
+            }
+
+            if (-not $Downloaded) {
+              throw "Dependency was not downloaded: $($File.Name)"
+            }
+
+            $Actual = (Get-FileHash $Destination -Algorithm SHA256).Hash.ToLowerInvariant()
+            $Expected = ([string]$File.Hash).ToLowerInvariant()
+
+            if ($Actual -ne $Expected) {
+              throw "SHA256 mismatch for $($File.Name): expected $Expected, got $Actual"
+            }
+
+            Write-Host "Verified $($File.Name)"
+          }
 
       - name: Build
         uses: ./.github/actions/build-obs
@@ -324,9 +347,13 @@ jobs:
           New-Item -ItemType Directory -Force -Path $Payload, $Output | Out-Null
           Expand-Archive -Path $Zip.FullName -DestinationPath $Payload -Force
 
-          choco install innosetup -y --no-progress
           $ISCC = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
-          if (-not (Test-Path $ISCC)) { throw "Inno Setup not found at $ISCC" }
+          if (-not (Test-Path $ISCC)) {
+            choco install innosetup -y --no-progress
+          }
+          if (-not (Test-Path $ISCC)) {
+            throw "Inno Setup not found at $ISCC"
+          }
 
           & $ISCC '.github\installer\hobostreamer.iss' `
             "/DMyAppVersion=${{ needs.metadata.outputs.version }}" `
@@ -345,12 +372,13 @@ jobs:
           Copy-Item $Exe.FullName 'dist\HoboStreamer-Windows-x64-Installer.exe'
 
       - name: Upload Windows artifact
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: hobostreamer-windows-x64
           path: dist/*
           if-no-files-found: error
           retention-days: 14
+          compression-level: 0
 
   release:
     name: Publish GitHub Release
@@ -359,14 +387,15 @@ jobs:
     if: needs.metadata.outputs.publish == 'true'
     permissions:
       contents: write
+
     steps:
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
           fetch-depth: 0
 
       - name: Download all build artifacts
-        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
           pattern: hobostreamer-*
           path: release
@@ -408,10 +437,8 @@ jobs:
               --generate-notes
               --target "$GITHUB_SHA"
             )
-
             if [[ "$PRERELEASE" == "true" ]]; then
               args+=(--prerelease)
             fi
-
             gh release create "${args[@]}"
           fi
