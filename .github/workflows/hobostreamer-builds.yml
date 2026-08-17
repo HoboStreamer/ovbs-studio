@@ -551,27 +551,92 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $Exe = Get-ChildItem 'build_installer\output\HoboStreamer-*-Windows-x64-Installer.exe' | Select-Object -First 1
-          if (-not $Exe) { throw 'Windows installer missing' }
+          $Exe = Get-ChildItem 'build_installer\output\HoboStreamer-*-Windows-x64-Installer.exe' |
+            Select-Object -First 1
 
-          $SevenZip = 'C:\Program Files\7-Zip\7z.exe'
-          if (-not (Test-Path $SevenZip -PathType Leaf)) {
-            throw "7-Zip not found at $SevenZip"
+          if (-not $Exe) {
+            throw 'Windows installer missing'
           }
 
-          $Listing = (& $SevenZip l $Exe.FullName | Out-String)
-          if ($LASTEXITCODE -ne 0) {
-            throw 'Could not inspect the generated Windows installer'
+          if ($Exe.Length -le 1MB) {
+            throw "Windows installer looks suspiciously small: $($Exe.Length) bytes"
           }
 
-          if ($Listing -notmatch 'obs-webrtc\.dll') {
-            throw 'Final Windows installer does not contain obs-webrtc.dll'
-          }
-          if ($Listing -notmatch 'datachannel\.dll') {
-            throw 'Final Windows installer does not contain datachannel.dll'
+          # Basic PE executable sanity check.
+          $Bytes = [System.IO.File]::ReadAllBytes($Exe.FullName)
+          if ($Bytes.Length -lt 2 -or
+              $Bytes[0] -ne 0x4D -or
+              $Bytes[1] -ne 0x5A) {
+            throw 'Generated Windows installer is not a valid PE executable'
           }
 
-          Write-Host 'Final Windows installer contains the required WebRTC/WHIP runtime.'
+          $InstallRoot = Join-Path $env:RUNNER_TEMP 'hobostreamer-installer-test'
+          $InstallLog = Join-Path $env:RUNNER_TEMP 'hobostreamer-installer-test.log'
+
+          Remove-Item -Recurse -Force $InstallRoot -ErrorAction SilentlyContinue
+          Remove-Item -Force $InstallLog -ErrorAction SilentlyContinue
+
+          New-Item -ItemType Directory -Force -Path $InstallRoot | Out-Null
+
+          Write-Host "Testing installer:"
+          Write-Host $Exe.FullName
+          Write-Host "Temporary installation directory:"
+          Write-Host $InstallRoot
+
+          $Arguments = @(
+            '/VERYSILENT'
+            '/SUPPRESSMSGBOXES'
+            '/NORESTART'
+            '/SP-'
+            '/CURRENTUSER'
+            "/DIR=`"$InstallRoot`""
+            "/LOG=`"$InstallLog`""
+          )
+
+          $Process = Start-Process `
+            -FilePath $Exe.FullName `
+            -ArgumentList $Arguments `
+            -Wait `
+            -PassThru
+
+          if ($Process.ExitCode -ne 0) {
+            if (Test-Path $InstallLog) {
+              Write-Host '---- Inno Setup log ----'
+              Get-Content $InstallLog
+              Write-Host '------------------------'
+            }
+
+            throw "Installer test failed with exit code $($Process.ExitCode)"
+          }
+
+          $ObsExe = Join-Path $InstallRoot 'bin\64bit\obs64.exe'
+          $WebRTC = Join-Path $InstallRoot 'obs-plugins\64bit\obs-webrtc.dll'
+          $DataChannel = Join-Path $InstallRoot 'bin\64bit\datachannel.dll'
+
+          if (-not (Test-Path $ObsExe -PathType Leaf)) {
+            throw "Installed package is missing obs64.exe at $ObsExe"
+          }
+
+          if (-not (Test-Path $WebRTC -PathType Leaf)) {
+            throw "Installed package is missing obs-webrtc.dll at $WebRTC"
+          }
+
+          if (-not (Test-Path $DataChannel -PathType Leaf)) {
+            throw "Installed package is missing datachannel.dll at $DataChannel"
+          }
+
+          if ((Get-Item $WebRTC).Length -le 0) {
+            throw 'Installed obs-webrtc.dll is empty'
+          }
+
+          if ((Get-Item $DataChannel).Length -le 0) {
+            throw 'Installed datachannel.dll is empty'
+          }
+
+          Write-Host "Verified OBS executable: $ObsExe"
+          Write-Host "Verified WebRTC plugin: $WebRTC"
+          Write-Host "Verified LibDataChannel runtime: $DataChannel"
+          Write-Host 'Final Windows installer successfully installs the required WebRTC/WHIP runtime.'
 
       - name: Prepare release files
         run: |
