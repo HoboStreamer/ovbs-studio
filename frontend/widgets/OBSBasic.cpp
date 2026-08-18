@@ -257,7 +257,7 @@ OBSBasic::OBSBasic(QWidget *parent) : OBSMainWindow(parent), undo_s(ui), ui(new 
 	ui->previewDisabledWidget->setVisible(false);
 
 #ifdef _WIN32
-	// HoboStreamer updates come from GitHub Releases; do not expose OBS's patch-repair backend.
+	// OpenVibe updates come from GitHub Releases; do not expose OBS's patch-repair backend.
 	ui->actionRepair->setVisible(false);
 #endif
 

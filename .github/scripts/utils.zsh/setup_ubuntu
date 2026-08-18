@@ -96,9 +96,9 @@ sudo apt-get install -y --no-install-recommends \
   libvpl-dev libvpl2
 
 # Upstream OBS disables WebRTC in Ubuntu CI, so Ubuntu does not provide
-# LibDataChannel through the normal OBS dependency setup. HoboStreamer requires
+# LibDataChannel through the normal OBS dependency setup. OpenVibe requires
 # WebRTC/WHIP, so build the exact LibDataChannel revision pinned by obs-deps.
-log_group 'Building LibDataChannel for HoboStreamer WebRTC/WHIP...'
+log_group 'Building LibDataChannel for OpenVibe WebRTC/WHIP...'
 
 local libdatachannel_version='0.24.2'
 local libdatachannel_tag="v${libdatachannel_version}"

@@ -30,8 +30,8 @@ enum class ListOpt : int {
 	ShowAll = 1,
 	Custom,
 	WHIP,
-	HoboStreamerRTMP,
-	HoboStreamerWHIP,
+	OpenVibeRTMP,
+	OpenVibeWHIP,
 };
 
 enum class Section : int {
@@ -39,36 +39,36 @@ enum class Section : int {
 	StreamKey,
 };
 
-static QString HoboStreamerRtmpServer()
+static QString OpenVibeRtmpServer()
 {
-	return QStringLiteral("rtmp://rtmp.hobostreamer.com:1935/live");
+	return QStringLiteral("rtmp://rtmp.openvibe.live:1935/live");
 }
 
-static QString HoboStreamerWhipUrl()
+static QString OpenVibeWhipUrl()
 {
-	return QStringLiteral("https://whip.hobostreamer.com/whip/1");
+	return QStringLiteral("https://whip.openvibe.live/whip/1");
 }
 
 bool OBSBasicSettings::IsCustomService() const
 {
 	int data = ui->service->currentData().toInt();
-	return data == (int)ListOpt::Custom || data == (int)ListOpt::HoboStreamerRTMP;
+	return data == (int)ListOpt::Custom || data == (int)ListOpt::OpenVibeRTMP;
 }
 
 inline bool OBSBasicSettings::IsWHIP() const
 {
 	int data = ui->service->currentData().toInt();
-	return data == (int)ListOpt::WHIP || data == (int)ListOpt::HoboStreamerWHIP;
+	return data == (int)ListOpt::WHIP || data == (int)ListOpt::OpenVibeWHIP;
 }
 
-inline bool OBSBasicSettings::IsHoboStreamerRTMP() const
+inline bool OBSBasicSettings::IsOpenVibeRTMP() const
 {
-	return ui->service->currentData().toInt() == (int)ListOpt::HoboStreamerRTMP;
+	return ui->service->currentData().toInt() == (int)ListOpt::OpenVibeRTMP;
 }
 
-inline bool OBSBasicSettings::IsHoboStreamerWHIP() const
+inline bool OBSBasicSettings::IsOpenVibeWHIP() const
 {
-	return ui->service->currentData().toInt() == (int)ListOpt::HoboStreamerWHIP;
+	return ui->service->currentData().toInt() == (int)ListOpt::OpenVibeWHIP;
 }
 
 void OBSBasicSettings::InitStreamPage()
@@ -138,15 +138,15 @@ void OBSBasicSettings::LoadStream1Settings()
 	protocol = QT_UTF8(obs_service_get_protocol(service_obj));
 	const char *bearer_token = obs_data_get_string(settings, "bearer_token");
 
-	bool is_hobo_rtmp = is_rtmp_custom && server && QString::fromUtf8(server).startsWith(QStringLiteral("rtmp://rtmp.hobostreamer.com"));
-	bool is_hobo_whip = is_whip && server && QString::fromUtf8(server).startsWith(QStringLiteral("https://whip.hobostreamer.com/whip/"));
+	bool is_openvibe_rtmp = is_rtmp_custom && server && QString::fromUtf8(server).startsWith(QStringLiteral("rtmp://rtmp.openvibe.live"));
+	bool is_openvibe_whip = is_whip && server && QString::fromUtf8(server).startsWith(QStringLiteral("https://whip.openvibe.live/whip/"));
 
 	if (is_rtmp_custom || is_whip) {
 		ui->customServer->setText(server);
 	}
 
-	if (is_hobo_rtmp) {
-		int idx = ui->service->findText(QStringLiteral("HoboStreamer - RTMP"));
+	if (is_openvibe_rtmp) {
+		int idx = ui->service->findText(QStringLiteral("OpenVibe - RTMP"));
 		if (idx != -1)
 			ui->service->setCurrentIndex(idx);
 		lastServiceIdx = idx;
@@ -163,8 +163,8 @@ void OBSBasicSettings::LoadStream1Settings()
 		}
 		ui->service->setCurrentIndex(idx);
 		lastServiceIdx = idx;
-		if (is_hobo_whip) {
-			int hidx = ui->service->findText(QStringLiteral("HoboStreamer - WHIP"));
+		if (is_openvibe_whip) {
+			int hidx = ui->service->findText(QStringLiteral("OpenVibe - WHIP"));
 			if (hidx != -1)
 				ui->service->setCurrentIndex(hidx);
 			lastServiceIdx = hidx;
@@ -317,13 +317,13 @@ void OBSBasicSettings::SaveStream1Settings()
 {
 	bool customServer = IsCustomService();
 	bool whip = IsWHIP();
-	bool hoboRtmp = IsHoboStreamerRTMP();
-	bool hoboWhip = IsHoboStreamerWHIP();
+	bool openvibeRtmp = IsOpenVibeRTMP();
+	bool openvibeWhip = IsOpenVibeWHIP();
 	const char *service_id = "rtmp_common";
 
-	if (customServer || hoboRtmp) {
+	if (customServer || openvibeRtmp) {
 		service_id = "rtmp_custom";
-	} else if (whip || hoboWhip) {
+	} else if (whip || openvibeWhip) {
 		service_id = "whip_custom";
 	}
 
@@ -332,7 +332,7 @@ void OBSBasicSettings::SaveStream1Settings()
 
 	OBSDataAutoRelease settings = obs_data_create();
 
-	if (!customServer && !whip && !hoboRtmp && !hoboWhip) {
+	if (!customServer && !whip && !openvibeRtmp && !openvibeWhip) {
 		obs_data_set_string(settings, "service", QT_TO_UTF8(ui->service->currentText()));
 		obs_data_set_string(settings, "protocol", QT_TO_UTF8(protocol));
 		if (ui->server->currentData() == CustomServerUUID()) {
@@ -343,10 +343,10 @@ void OBSBasicSettings::SaveStream1Settings()
 			obs_data_set_string(settings, "server", QT_TO_UTF8(ui->server->currentData().toString()));
 		}
 	} else {
-		if (hoboRtmp) {
-			obs_data_set_string(settings, "server", QT_TO_UTF8(HoboStreamerRtmpServer()));
-		} else if (hoboWhip) {
-			obs_data_set_string(settings, "server", QT_TO_UTF8(HoboStreamerWhipUrl()));
+		if (openvibeRtmp) {
+			obs_data_set_string(settings, "server", QT_TO_UTF8(OpenVibeRtmpServer()));
+		} else if (openvibeWhip) {
+			obs_data_set_string(settings, "server", QT_TO_UTF8(OpenVibeWhipUrl()));
 		} else {
 			obs_data_set_string(settings, "server", QT_TO_UTF8(ui->customServer->text().trimmed()));
 		}
@@ -550,10 +550,10 @@ void OBSBasicSettings::LoadServices(bool showAll)
 
 	if (obs_is_output_protocol_registered("WHIP")) {
 		ui->service->addItem(QTStr("WHIP"), QVariant((int)ListOpt::WHIP));
-		ui->service->addItem(QStringLiteral("HoboStreamer - WHIP"), QVariant((int)ListOpt::HoboStreamerWHIP));
+		ui->service->addItem(QStringLiteral("OpenVibe - WHIP"), QVariant((int)ListOpt::OpenVibeWHIP));
 	}
 
-	ui->service->addItem(QStringLiteral("HoboStreamer - RTMP"), QVariant((int)ListOpt::HoboStreamerRTMP));
+	ui->service->addItem(QStringLiteral("OpenVibe - RTMP"), QVariant((int)ListOpt::OpenVibeRTMP));
 
 	if (!showAll) {
 		ui->service->addItem(QTStr("Basic.AutoConfig.StreamPage.Service.ShowAll"),
@@ -644,10 +644,10 @@ void OBSBasicSettings::on_service_currentIndexChanged(int idx)
 
 	ServiceChanged();
 
-	if (IsHoboStreamerRTMP()) {
-		ui->customServer->setText(HoboStreamerRtmpServer());
-	} else if (IsHoboStreamerWHIP()) {
-		ui->customServer->setText(HoboStreamerWhipUrl());
+	if (IsOpenVibeRTMP()) {
+		ui->customServer->setText(OpenVibeRtmpServer());
+	} else if (IsOpenVibeWHIP()) {
+		ui->customServer->setText(OpenVibeWhipUrl());
 	}
 
 	UpdateMoreInfoLink();

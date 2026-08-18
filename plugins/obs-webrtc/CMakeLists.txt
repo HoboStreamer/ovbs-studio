@@ -19,7 +19,7 @@ target_sources(
 
 target_link_libraries(obs-webrtc PRIVATE OBS::libobs LibDataChannel::LibDataChannel CURL::libcurl)
 
-# HoboStreamer requires WebRTC/WHIP on Linux. Upstream OBS disables WebRTC in
+# OpenVibe requires WebRTC/WHIP on Linux. Upstream OBS disables WebRTC in
 # Ubuntu CI, so we build LibDataChannel ourselves and bundle its runtime library
 # into the DEB.
 if(OS_LINUX)

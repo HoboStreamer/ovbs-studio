@@ -1,4 +1,4 @@
-#include "HoboUpdateThread.hpp"
+#include "OpenVibeUpdateThread.hpp"
 
 #include <OBSApp.hpp>
 #include <qt-wrappers.hpp>
@@ -20,12 +20,12 @@
 #include <string>
 #include <vector>
 
-#include "moc_HoboUpdateThread.cpp"
+#include "moc_OpenVibeUpdateThread.cpp"
 
 namespace {
 constexpr const char *UPDATE_MANIFEST_URL =
-	"https://github.com/HoboStreamer/ovbs-studio/releases/latest/download/HoboStreamer-update.json";
-constexpr const char *EXPECTED_PRODUCT = "HoboStreamer Studio";
+	"https://github.com/OpenVibe/ovbs-studio/releases/latest/download/OpenVibe-update.json";
+constexpr const char *EXPECTED_PRODUCT = "OpenVibe Studio";
 constexpr int EXPECTED_SCHEMA_VERSION = 1;
 
 size_t CurlWrite(char *ptr, size_t size, size_t nmemb, void *userdata)
@@ -53,7 +53,7 @@ std::string FetchUpdateManifest()
 	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, "");
 	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT, 8L);
 	curl_easy_setopt(curl, CURLOPT_TIMEOUT, 15L);
-	curl_easy_setopt(curl, CURLOPT_USERAGENT, "HoboStreamer-Studio-Updater/1");
+	curl_easy_setopt(curl, CURLOPT_USERAGENT, "OpenVibe-Studio-Updater/1");
 	curl_easy_setopt(curl, CURLOPT_ERRORBUFFER, errorBuffer);
 	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, CurlWrite);
 	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &output);
@@ -66,13 +66,13 @@ std::string FetchUpdateManifest()
 
 	if (result != CURLE_OK) {
 		const std::string detail = errorBuffer[0] ? errorBuffer : curl_easy_strerror(result);
-		throw std::runtime_error("Unable to fetch HoboStreamer update manifest: " + detail);
+		throw std::runtime_error("Unable to fetch OpenVibe update manifest: " + detail);
 	}
 	if (responseCode < 200 || responseCode >= 300) {
-		throw std::runtime_error("HoboStreamer update manifest returned HTTP " + std::to_string(responseCode));
+		throw std::runtime_error("OpenVibe update manifest returned HTTP " + std::to_string(responseCode));
 	}
 	if (output.empty()) {
-		throw std::runtime_error("HoboStreamer update manifest was empty");
+		throw std::runtime_error("OpenVibe update manifest was empty");
 	}
 
 	return output;
@@ -192,30 +192,30 @@ void ValidateDownloadUrl(const std::string &url)
 {
 	const QUrl parsed(QString::fromStdString(url));
 	if (!parsed.isValid() || parsed.scheme() != QStringLiteral("https") || parsed.host() != QStringLiteral("github.com") ||
-	    !parsed.path().startsWith(QStringLiteral("/HoboStreamer/ovbs-studio/releases/download/"))) {
+	    !parsed.path().startsWith(QStringLiteral("/OpenVibe/ovbs-studio/releases/download/"))) {
 		throw std::runtime_error("Update manifest contains an untrusted download URL");
 	}
 }
 } // namespace
 
-void HoboUpdateThread::infoSlot(const QString &title, const QString &text)
+void OpenVibeUpdateThread::infoSlot(const QString &title, const QString &text)
 {
 	OBSMessageBox::information(App()->GetMainWindow(), title, text);
 }
 
-void HoboUpdateThread::info(const QString &title, const QString &text)
+void OpenVibeUpdateThread::info(const QString &title, const QString &text)
 {
-	QMetaObject::invokeMethod(this, &HoboUpdateThread::infoSlot, Qt::BlockingQueuedConnection, title, text);
+	QMetaObject::invokeMethod(this, &OpenVibeUpdateThread::infoSlot, Qt::BlockingQueuedConnection, title, text);
 }
 
-bool HoboUpdateThread::queryUpdateSlot(const QString &currentVersion, const QString &latestVersion)
+bool OpenVibeUpdateThread::queryUpdateSlot(const QString &currentVersion, const QString &latestVersion)
 {
 	QMessageBox box(App()->GetMainWindow());
 	box.setIcon(QMessageBox::Information);
-	box.setWindowTitle(QStringLiteral("HoboStreamer Studio Update"));
-	box.setText(QStringLiteral("HoboStreamer Studio %1 is available.").arg(latestVersion));
+	box.setWindowTitle(QStringLiteral("OpenVibe Studio Update"));
+	box.setText(QStringLiteral("OpenVibe Studio %1 is available.").arg(latestVersion));
 	box.setInformativeText(
-		QStringLiteral("You are running %1. Download the verified package for this computer from the HoboStreamer GitHub release?")
+		QStringLiteral("You are running %1. Download the verified package for this computer from the OpenVibe GitHub release?")
 			.arg(currentVersion));
 
 	QPushButton *download = box.addButton(QStringLiteral("Download Update"), QMessageBox::AcceptRole);
@@ -224,30 +224,30 @@ bool HoboUpdateThread::queryUpdateSlot(const QString &currentVersion, const QStr
 	return box.clickedButton() == download;
 }
 
-bool HoboUpdateThread::queryUpdate(const QString &currentVersion, const QString &latestVersion)
+bool OpenVibeUpdateThread::queryUpdate(const QString &currentVersion, const QString &latestVersion)
 {
 	bool result = false;
-	QMetaObject::invokeMethod(this, &HoboUpdateThread::queryUpdateSlot, Qt::BlockingQueuedConnection,
+	QMetaObject::invokeMethod(this, &OpenVibeUpdateThread::queryUpdateSlot, Qt::BlockingQueuedConnection,
 				  qReturnArg(result), currentVersion, latestVersion);
 	return result;
 }
 
-void HoboUpdateThread::openUrlSlot(const QUrl &url)
+void OpenVibeUpdateThread::openUrlSlot(const QUrl &url)
 {
 	QDesktopServices::openUrl(url);
 }
 
-void HoboUpdateThread::openUrl(const QUrl &url)
+void OpenVibeUpdateThread::openUrl(const QUrl &url)
 {
-	QMetaObject::invokeMethod(this, &HoboUpdateThread::openUrlSlot, Qt::BlockingQueuedConnection, url);
+	QMetaObject::invokeMethod(this, &OpenVibeUpdateThread::openUrlSlot, Qt::BlockingQueuedConnection, url);
 }
 
-void HoboUpdateThread::run()
+void OpenVibeUpdateThread::run()
 try {
 	const std::string text = FetchUpdateManifest();
 	const nlohmann::json manifest = nlohmann::json::parse(text);
 	if (manifest.at("schema_version").get<int>() != EXPECTED_SCHEMA_VERSION) {
-		throw std::runtime_error("Unsupported HoboStreamer update manifest schema");
+		throw std::runtime_error("Unsupported OpenVibe update manifest schema");
 	}
 	if (manifest.at("product").get<std::string>() != EXPECTED_PRODUCT) {
 		throw std::runtime_error("Unexpected update manifest product");
@@ -261,13 +261,13 @@ try {
 	const SemVersion current = ParseVersion(currentString);
 	const SemVersion latest = ParseVersion(latestString);
 
-	config_set_int(App()->GetAppConfig(), "General", "HoboLastUpdateCheck", static_cast<long long>(time(nullptr)));
+	config_set_int(App()->GetAppConfig(), "General", "openvibeLastUpdateCheck", static_cast<long long>(time(nullptr)));
 	config_save_safe(App()->GetAppConfig(), "tmp", nullptr);
 
 	if (CompareVersions(latest, current) <= 0) {
 		if (manualUpdate) {
-			info(QStringLiteral("HoboStreamer Studio Update"),
-			     QStringLiteral("You are already running the latest stable HoboStreamer Studio release (%1).")
+			info(QStringLiteral("OpenVibe Studio Update"),
+			     QStringLiteral("You are already running the latest stable OpenVibe Studio release (%1).")
 				     .arg(QString::fromStdString(currentString)));
 		}
 		return;
@@ -275,7 +275,7 @@ try {
 
 	const std::string assetKey = AssetKey();
 	if (assetKey.empty()) {
-		throw std::runtime_error("No HoboStreamer update package is defined for this platform/architecture");
+		throw std::runtime_error("No OpenVibe update package is defined for this platform/architecture");
 	}
 
 	const auto &asset = manifest.at("assets").at(assetKey);
@@ -289,10 +289,10 @@ try {
 	openUrl(QUrl(QString::fromStdString(downloadUrl)));
 
 } catch (const std::exception &exception) {
-	blog(LOG_WARNING, "HoboStreamer update check failed: %s", exception.what());
+	blog(LOG_WARNING, "OpenVibe update check failed: %s", exception.what());
 	if (manualUpdate) {
-		info(QStringLiteral("HoboStreamer Studio Update"),
-		     QStringLiteral("Could not check for HoboStreamer Studio updates.\n\n%1")
+		info(QStringLiteral("OpenVibe Studio Update"),
+		     QStringLiteral("Could not check for OpenVibe Studio updates.\n\n%1")
 			     .arg(QString::fromUtf8(exception.what())));
 	}
 }

@@ -384,9 +384,9 @@ void OBSBasic::on_actionRepair_triggered()
 {
 #ifdef _WIN32
 	OBSMessageBox::information(
-		this, QStringLiteral("HoboStreamer Studio"),
-		QStringLiteral("Repair through the upstream OBS updater is disabled in HoboStreamer Studio. "
-			       "Install the latest HoboStreamer Studio release from GitHub instead."));
+		this, QStringLiteral("OpenVibe Studio"),
+		QStringLiteral("Repair through the upstream OBS updater is disabled in OpenVibe Studio. "
+			       "Install the latest OpenVibe Studio release from GitHub instead."));
 #endif
 }
 
@@ -457,7 +457,7 @@ void OBSBasic::on_actionShowWhatsNew_triggered()
 void OBSBasic::on_actionReleaseNotes_triggered()
 {
 	QDesktopServices::openUrl(
-		QUrl(QStringLiteral("https://github.com/HoboStreamer/ovbs-studio/releases/latest"), QUrl::TolerantMode));
+		QUrl(QStringLiteral("https://github.com/OpenVibe/ovbs-studio/releases/latest"), QUrl::TolerantMode));
 }
 
 void OBSBasic::on_actionShowSettingsFolder_triggered()

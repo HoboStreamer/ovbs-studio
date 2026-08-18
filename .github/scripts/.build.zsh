@@ -229,7 +229,7 @@ build() {
 
       local installed_webrtc="$(find ${project_root}/build_${target%%-*}/install/${config} -type f -name 'obs-webrtc.so' | head -n1)"
       if [[ -z ${installed_webrtc} ]]; then
-        log_error 'obs-webrtc.so was not installed. WebRTC/WHIP is required for HoboStreamer.'
+        log_error 'obs-webrtc.so was not installed. WebRTC/WHIP is required for OpenVibe.'
         return 2
       fi
       ;;

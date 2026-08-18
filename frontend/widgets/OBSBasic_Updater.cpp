@@ -21,7 +21,7 @@
 
 #include <dialogs/OBSWhatsNew.hpp>
 
-#include <utility/HoboUpdateThread.hpp>
+#include <utility/OpenVibeUpdateThread.hpp>
 
 #ifdef _WIN32
 #include <utility/AutoUpdateThread.hpp>
@@ -183,7 +183,7 @@ void OBSBasic::TimedCheckForUpdates()
 	}
 
 	constexpr long long checkInterval = 60LL * 60LL * 24LL; // once per day
-	const long long lastUpdate = config_get_int(App()->GetAppConfig(), "General", "HoboLastUpdateCheck");
+	const long long lastUpdate = config_get_int(App()->GetAppConfig(), "General", "openvibeLastUpdateCheck");
 	const long long now = static_cast<long long>(time(nullptr));
 
 	if (lastUpdate <= 0 || now - lastUpdate > checkInterval) {
@@ -205,7 +205,7 @@ void OBSBasic::CheckForUpdates(bool manualUpdate)
 		ui->actionCheckForUpdates->setEnabled(false);
 	}
 
-	HoboUpdateThread *thread = new HoboUpdateThread(manualUpdate);
+	OpenVibeUpdateThread *thread = new OpenVibeUpdateThread(manualUpdate);
 	connect(thread, &QThread::finished, this, [this]() {
 		if (ui->actionCheckForUpdates) {
 			ui->actionCheckForUpdates->setEnabled(true);

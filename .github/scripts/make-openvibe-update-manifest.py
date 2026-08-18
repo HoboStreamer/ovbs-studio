@@ -7,17 +7,17 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-REPO = "HoboStreamer/ovbs-studio"
-PRODUCT = "HoboStreamer Studio"
+REPO = "OpenVibe/ovbs-studio"
+PRODUCT = "OpenVibe Studio"
 SCHEMA_VERSION = 1
 
 ASSETS = {
-    "windows_x64_installer": "HoboStreamer-Windows-x64-Installer.exe",
-    "windows_x64_portable": "HoboStreamer-Windows-x64-Portable.zip",
-    "macos_arm64": "HoboStreamer-macOS-Apple.dmg",
-    "macos_x64": "HoboStreamer-macOS-Intel.dmg",
-    "linux_deb_x64": "HoboStreamer-Linux-x86_64.deb",
-    "source": "HoboStreamer-Source.tar.gz",
+    "windows_x64_installer": "OpenVibe-Windows-x64-Installer.exe",
+    "windows_x64_portable": "OpenVibe-Windows-x64-Portable.zip",
+    "macos_arm64": "OpenVibe-macOS-Apple.dmg",
+    "macos_x64": "OpenVibe-macOS-Intel.dmg",
+    "linux_deb_x64": "OpenVibe-Linux-x86_64.deb",
+    "source": "OpenVibe-Source.tar.gz",
 }
 
 

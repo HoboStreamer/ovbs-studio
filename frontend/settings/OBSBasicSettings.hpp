@@ -205,8 +205,8 @@ private:
 	void InitStreamPage();
 	bool IsCustomService() const;
 	inline bool IsWHIP() const;
-	bool IsHoboStreamerRTMP() const;
-	bool IsHoboStreamerWHIP() const;
+	bool IsOpenVibeRTMP() const;
+	bool IsOpenVibeWHIP() const;
 	void LoadServices(bool showAll);
 	void OnOAuthStreamKeyConnected();
 	void OnAuthConnected();

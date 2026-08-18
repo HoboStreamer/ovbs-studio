@@ -3,7 +3,7 @@
 #include <QThread>
 #include <QUrl>
 
-class HoboUpdateThread : public QThread {
+class OpenVibeUpdateThread : public QThread {
 	Q_OBJECT
 
 	bool manualUpdate = false;
@@ -19,5 +19,5 @@ private slots:
 	void openUrlSlot(const QUrl &url);
 
 public:
-	explicit HoboUpdateThread(bool manualUpdate_) : manualUpdate(manualUpdate_) {}
+	explicit OpenVibeUpdateThread(bool manualUpdate_) : manualUpdate(manualUpdate_) {}
 };

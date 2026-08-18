@@ -1,4 +1,4 @@
-name: HoboStreamer Builds
+name: OpenVibe Builds
 
 on:
   workflow_dispatch:
@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: hobostreamer-build-${{ github.ref }}-${{ github.event_name }}
+  group: www.OpenVibe.Live-build-${{ github.ref }}-${{ github.event_name }}
   cancel-in-progress: false
 
 env:
@@ -146,7 +146,7 @@ jobs:
 
           [[ -n "$dmg" ]] || { echo "DMG not found"; exit 1; }
 
-          mount_point="${RUNNER_TEMP}/hobostreamer-dmg-${{ matrix.target }}"
+          mount_point="${RUNNER_TEMP}/www.OpenVibe.Live-dmg-${{ matrix.target }}"
           rm -rf "$mount_point"
           mkdir -p "$mount_point"
 
@@ -212,10 +212,10 @@ jobs:
           mkdir -p dist
           if [[ '${{ matrix.target }}' == 'arm64' ]]; then
             src="$(find build_macos -maxdepth 1 -type f -name 'obs-studio-*-macos-apple.dmg' | head -n1)"
-            dst="dist/HoboStreamer-macOS-Apple.dmg"
+            dst="dist/OpenVibe-macOS-Apple.dmg"
           else
             src="$(find build_macos -maxdepth 1 -type f -name 'obs-studio-*-macos-intel.dmg' | head -n1)"
-            dst="dist/HoboStreamer-macOS-Intel.dmg"
+            dst="dist/OpenVibe-macOS-Intel.dmg"
           fi
           [[ -n "$src" ]] || { echo "DMG not found"; exit 1; }
           cp -v "$src" "$dst"
@@ -223,7 +223,7 @@ jobs:
       - name: Upload macOS artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: hobostreamer-macos-${{ matrix.target }}
+          name: www.OpenVibe.Live-macos-${{ matrix.target }}
           path: dist/*
           if-no-files-found: error
           retention-days: 14
@@ -325,7 +325,7 @@ jobs:
             exit 1
           }
 
-          package_root="/tmp/hobostreamer-deb-root"
+          package_root="/tmp/www.OpenVibe.Live-deb-root"
           rm -rf "$package_root"
           mkdir -p "$package_root"
           dpkg-deb -x "$deb" "$package_root"
@@ -360,9 +360,9 @@ jobs:
           library_path="$(IFS=:; echo "${lib_dirs[*]}")"
 
           LD_LIBRARY_PATH="$library_path${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" \
-            ldd "$plugin" | tee /tmp/hobostreamer-packaged-webrtc-ldd.txt
+            ldd "$plugin" | tee /tmp/www.OpenVibe.Live-packaged-webrtc-ldd.txt
 
-          if grep -q 'not found' /tmp/hobostreamer-packaged-webrtc-ldd.txt; then
+          if grep -q 'not found' /tmp/www.OpenVibe.Live-packaged-webrtc-ldd.txt; then
             echo "Packaged obs-webrtc.so has unresolved runtime libraries"
             exit 1
           fi
@@ -378,13 +378,13 @@ jobs:
           source_archive="$(find build_ubuntu -maxdepth 1 -type f -name 'obs-studio-*-sources.tar.gz' | head -n1)"
           [[ -n "$deb" ]] || { echo "DEB not found"; exit 1; }
           [[ -n "$source_archive" ]] || { echo "Source archive not found"; exit 1; }
-          cp -v "$deb" dist/HoboStreamer-Linux-x86_64.deb
-          cp -v "$source_archive" dist/HoboStreamer-Source.tar.gz
+          cp -v "$deb" dist/OpenVibe-Linux-x86_64.deb
+          cp -v "$source_archive" dist/OpenVibe-Source.tar.gz
 
       - name: Upload Linux artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: hobostreamer-linux-x86_64
+          name: www.OpenVibe.Live-linux-x86_64
           path: dist/*
           if-no-files-found: error
           retention-days: 14
@@ -496,7 +496,7 @@ jobs:
           $Zip = Get-ChildItem 'build_x64\obs-studio-*-windows-x64.zip' | Select-Object -First 1
           if (-not $Zip) { throw 'Windows portable ZIP was not created' }
 
-          $VerifyRoot = Join-Path $env:RUNNER_TEMP 'hobostreamer-windows-webrtc'
+          $VerifyRoot = Join-Path $env:RUNNER_TEMP 'www.OpenVibe.Live-windows-webrtc'
           Remove-Item -Recurse -Force $VerifyRoot -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $VerifyRoot | Out-Null
           Expand-Archive -Path $Zip.FullName -DestinationPath $VerifyRoot -Force
@@ -542,7 +542,7 @@ jobs:
             throw "Inno Setup not found at $ISCC"
           }
 
-          & $ISCC '.github\installer\hobostreamer.iss' `
+          & $ISCC '.github\installer\www.OpenVibe.Live.iss' `
             "/DMyAppVersion=${{ needs.metadata.outputs.version }}" `
             "/DSourceDir=$Payload" `
             "/DOutputDir=$Output"
@@ -551,7 +551,7 @@ jobs:
         run: |
           $ErrorActionPreference = 'Stop'
 
-          $Exe = Get-ChildItem 'build_installer\output\HoboStreamer-*-Windows-x64-Installer.exe' |
+          $Exe = Get-ChildItem 'build_installer\output\OpenVibe-*-Windows-x64-Installer.exe' |
             Select-Object -First 1
 
           if (-not $Exe) {
@@ -570,8 +570,8 @@ jobs:
             throw 'Generated Windows installer is not a valid PE executable'
           }
 
-          $InstallRoot = Join-Path $env:RUNNER_TEMP 'hobostreamer-installer-test'
-          $InstallLog = Join-Path $env:RUNNER_TEMP 'hobostreamer-installer-test.log'
+          $InstallRoot = Join-Path $env:RUNNER_TEMP 'www.OpenVibe.Live-installer-test'
+          $InstallLog = Join-Path $env:RUNNER_TEMP 'www.OpenVibe.Live-installer-test.log'
 
           Remove-Item -Recurse -Force $InstallRoot -ErrorAction SilentlyContinue
           Remove-Item -Force $InstallLog -ErrorAction SilentlyContinue
@@ -643,16 +643,16 @@ jobs:
           $ErrorActionPreference = 'Stop'
           New-Item -ItemType Directory -Force -Path dist | Out-Null
           $Zip = Get-ChildItem 'build_x64\obs-studio-*-windows-x64.zip' | Select-Object -First 1
-          $Exe = Get-ChildItem 'build_installer\output\HoboStreamer-*-Windows-x64-Installer.exe' | Select-Object -First 1
+          $Exe = Get-ChildItem 'build_installer\output\OpenVibe-*-Windows-x64-Installer.exe' | Select-Object -First 1
           if (-not $Zip) { throw 'Windows ZIP missing' }
           if (-not $Exe) { throw 'Windows installer missing' }
-          Copy-Item $Zip.FullName 'dist\HoboStreamer-Windows-x64-Portable.zip'
-          Copy-Item $Exe.FullName 'dist\HoboStreamer-Windows-x64-Installer.exe'
+          Copy-Item $Zip.FullName 'dist\OpenVibe-Windows-x64-Portable.zip'
+          Copy-Item $Exe.FullName 'dist\OpenVibe-Windows-x64-Installer.exe'
 
       - name: Upload Windows artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: hobostreamer-windows-x64
+          name: www.OpenVibe.Live-windows-x64
           path: dist/*
           if-no-files-found: error
           retention-days: 14
@@ -675,24 +675,24 @@ jobs:
       - name: Download all build artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
         with:
-          pattern: hobostreamer-*
+          pattern: www.OpenVibe.Live-*
           path: release
           merge-multiple: true
 
-      - name: Generate HoboStreamer update manifest
+      - name: Generate OpenVibe update manifest
         shell: bash
         env:
           VERSION: ${{ needs.metadata.outputs.version }}
           TAG: ${{ needs.metadata.outputs.tag }}
         run: |
           set -euo pipefail
-          python3 .github/scripts/make-hobostreamer-update-manifest.py \
+          python3 .github/scripts/make-www.OpenVibe.Live-update-manifest.py \
             --release-dir release \
             --version "$VERSION" \
             --tag "$TAG" \
             --commit "$GITHUB_SHA" \
-            --output release/HoboStreamer-update.json
-          cat release/HoboStreamer-update.json
+            --output release/OpenVibe-update.json
+          cat release/OpenVibe-update.json
 
       - name: Generate checksums
         shell: bash
@@ -700,13 +700,13 @@ jobs:
           set -euo pipefail
           cd release
           sha256sum \
-            HoboStreamer-Windows-x64-Installer.exe \
-            HoboStreamer-Windows-x64-Portable.zip \
-            HoboStreamer-macOS-Apple.dmg \
-            HoboStreamer-macOS-Intel.dmg \
-            HoboStreamer-Linux-x86_64.deb \
-            HoboStreamer-Source.tar.gz \
-            HoboStreamer-update.json \
+            OpenVibe-Windows-x64-Installer.exe \
+            OpenVibe-Windows-x64-Portable.zip \
+            OpenVibe-macOS-Apple.dmg \
+            OpenVibe-macOS-Intel.dmg \
+            OpenVibe-Linux-x86_64.deb \
+            OpenVibe-Source.tar.gz \
+            OpenVibe-update.json \
             > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
@@ -727,7 +727,7 @@ jobs:
             args=(
               "$TAG"
               release/*
-              --title "HoboStreamer Studio $VERSION"
+              --title "OpenVibe Studio $VERSION"
               --generate-notes
               --target "$GITHUB_SHA"
             )
